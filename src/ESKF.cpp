@@ -6,10 +6,14 @@
 #include <Eigen/Cholesky>
 #include <iostream>
 #include <cmath>
+#include <fstream>
 
 using namespace Eigen;
 
 namespace eskf {
+  
+  std::ofstream debugFile("/home/elia/Documents/eskf.csv");
+  static double curr_time_sec = 0.0; 
   
   template <typename T> inline T sq(T var) {
     return var * var;
@@ -83,6 +87,10 @@ namespace eskf {
   }
   
   ESKF::ESKF() {
+    debugFile << "time_" << "," << "yaw_" << "," << "pitch_" << "," << "roll_" << std::endl;
+    //debugFile << "time_" << "," << "dq1_" << "," << "dq2_" << "," << "dq3_" << "," << "dq4_" << std::endl;
+    //debugFile << "time_" << "," << "q1_" << "," << "q2_" << "," << "q3_" << "," << "q4_" << std::endl;
+    //debugFile << "time_" << "," << "corrected_delta_ang(0)_" << "," << "corrected_delta_ang(1)_" << "," << "corrected_delta_ang(2)_" << std::endl;
     // zeros state_
     state_.quat_nominal = quat(1, 0, 0, 0);
     state_.gyro_bias = vec3(0, 0, 0);
@@ -142,20 +150,26 @@ namespace eskf {
     vec3 px4body_w = rosb2px4b * w;
     
     vec3 delta_angle = px4body_w * dt; // current delta angle  (rad)
-    
+    //debugFile << curr_time_sec << "," << delta_angle(0) << "," << delta_angle(1) << "," << delta_angle(2) << std::endl;
     // apply imu bias corrections
-    vec3 corrected_delta_ang = delta_angle - state_.gyro_bias;
-    
+    vec3 corrected_delta_ang = delta_angle;//- vec3(3.8785e-05,3.8785e-05,3.8785e-05);//state_.gyro_bias;
+    //debugFile << curr_time_sec << "," << corrected_delta_ang(0) << "," << corrected_delta_ang(1) << "," << corrected_delta_ang(2) << std::endl;
     // convert the delta angle to a delta quaternion
     quat dq;
+    //corrected_delta_ang = vec3(0.1, 0.2, 0.3);
     dq = from_axis_angle(corrected_delta_ang);
+    //debugFile << curr_time_sec << "," << dq.w() << "," << dq.x() << "," << dq.y() << "," << dq.z() << std::endl;
     // rotate the previous quaternion by the delta quaternion using a quaternion multiplication
     state_.quat_nominal = state_.quat_nominal * dq;
-
     // quaternions must be normalised whenever they are modified
     state_.quat_nominal.normalize();
-        
+    //debugFile << curr_time_sec << "," << state_.quat_nominal.w() << "," << state_.quat_nominal.x() << "," << state_.quat_nominal.y() << "," << state_.quat_nominal.z() << std::endl;
     constrainStates(dt);
+    mat3 R_to_earth = quat_to_invrotmat(state_.quat_nominal);
+    scalar_t yaw = atan2f(-R_to_earth(0, 1), R_to_earth(1, 1)); // first rotation (yaw)
+    scalar_t pitch = atan2f(-R_to_earth(2, 0), R_to_earth(2, 2)); // third rotation (pitch)
+    scalar_t roll = asinf(R_to_earth(2, 1)); // second rotation (roll)
+    debugFile << curr_time_sec << "," << yaw << "," << pitch << "," << roll << std::endl;
     
     // error-state jacobian
     // assign intermediate state variables
@@ -283,6 +297,108 @@ namespace eskf {
     for (unsigned i = 0; i < k_num_states_; i++) {
       P_[i][i] = nextP[i][i];
     }
+    
+    curr_time_sec += dt;
+    
+    bool no_measurement = true;
+    if(no_measurement) {
+      
+      scalar_t R[3] = {}; // observation variances for [PN,PE,PD]
+      scalar_t gate_size[3] = {}; // innovation consistency check gate sizes for [PN,PE,PD] observations
+      scalar_t Kfusion[k_num_states_] = {}; // Kalman gain vector for any single observation - sequential fusion is used
+      scalar_t att_innov[3] = {}; //
+      scalar_t att_innov_var[3] = {}; //
+      scalar_t att_test_ratio[3] = {}; //
+      bool innov_check_pass_map[3] = {}; //
+      
+      R[0] = 0.5f;
+      att_innov[0] = yaw - last_known_yaw;
+      att_innov[1] = pitch - last_known_pitch;
+
+      // glitch protection is not required so set gate to a large value
+      gate_size[0] = 100.0f;
+      R[0] = R[0] * R[0];
+
+      // copy North axis values to East axis
+      R[1] = R[0];
+      gate_size[1] = gate_size[0];
+      
+      att_innov[2] = roll - last_known_roll;
+      // observation variance - user parameter defined
+      R[2] = 2.0f;
+      R[2] = R[2] * R[2];
+      // innovation gate size
+      gate_size[2] = 5.0f;
+      
+      // calculate innovation test ratios
+      for (unsigned obs_index = 0; obs_index < 3; obs_index++) {
+	// compute the innovation variance SK = HPH + R
+	unsigned state_index = obs_index + 4;	// we start with gyro_bias and this is the 4. state
+	att_innov_var[obs_index] = P_[state_index][state_index] + R[obs_index];
+	// Compute the ratio of innovation to gate size
+	att_test_ratio[obs_index] = sq(att_innov[obs_index]) / (sq(gate_size[obs_index]) * att_innov_var[obs_index]);
+      }
+      
+      bool att_check_pass = ((att_test_ratio[0] <= 1.0f) && (att_test_ratio[1] <= 1.0f) && (att_test_ratio[2] <= 1.0f));
+      innov_check_pass_map[0] = innov_check_pass_map[1] = innov_check_pass_map[2] = att_check_pass;
+      
+      for (unsigned obs_index = 0; obs_index < 3; obs_index++) {
+	// skip fusion if not requested or checks have failed
+	if (!innov_check_pass_map[obs_index]) {
+	  continue;
+	}
+
+	unsigned state_index = obs_index + 4;	// we start with gyro_bias and this is the 4. state
+
+	// calculate kalman gain K = PHS, where S = 1/innovation variance
+	for (int row = 0; row < k_num_states_; row++) {
+	  Kfusion[row] = P_[row][state_index] / att_innov_var[obs_index];
+	}
+
+	// update covarinace matrix via Pnew = (I - KH)P
+	scalar_t KHP[k_num_states_][k_num_states_];
+	for (unsigned row = 0; row < k_num_states_; row++) {
+	  for (unsigned column = 0; column < k_num_states_; column++) {
+	    KHP[row][column] = Kfusion[row] * P_[state_index][column];
+	  }
+	}
+
+	// if the covariance correction will result in a negative variance, then
+	// the covariance marix is unhealthy and must be corrected
+	bool healthy = true;
+	for (int i = 0; i < k_num_states_; i++) {
+	  if (P_[i][i] < KHP[i][i]) {
+	    // zero rows and columns
+	    zeroRows(P_,i,i);
+	    zeroCols(P_,i,i);
+
+	    //flag as unhealthy
+	    healthy = false;
+	  }
+	}
+
+	// only apply covariance and state corrrections if healthy
+	if (healthy) {
+	  // apply the covariance corrections
+	  for (unsigned row = 0; row < k_num_states_; row++) {
+	    for (unsigned column = 0; column < k_num_states_; column++) {
+	      P_[row][column] = P_[row][column] - KHP[row][column];
+	    }
+	  }
+
+	  // correct the covariance marix for gross errors
+	  fixCovarianceErrors(dt);
+
+	  // apply the state corrections
+	  fuse(Kfusion, att_innov[obs_index]);
+	}
+      }
+      R_to_earth = quat_to_invrotmat(state_.quat_nominal);
+      constrainStates(dt);
+      last_known_yaw = atan2f(-R_to_earth(0, 1), R_to_earth(1, 1)); // first rotation (yaw)
+      last_known_pitch = atan2f(-R_to_earth(2, 0), R_to_earth(2, 2)); // third rotation (pitch)
+      last_known_roll = asinf(R_to_earth(2, 1)); // second rotation (roll)
+    }
   }
   
   void ESKF::update(const ESKF::quat& q, scalar_t dt) {
@@ -312,9 +428,9 @@ namespace eskf {
     //std::cout << "n2b = " << std::endl << q_nb.toRotationMatrix() << std::endl;
     //std::cout << "e2r = " << std::endl << q.conjugate().toRotationMatrix() << std::endl;
     // update transformation matrix from body to world frame
-    std::cout << "quat_nominal = " << state_.quat_nominal.w() << " " << state_.quat_nominal.x() << " " << state_.quat_nominal.y() << " " << state_.quat_nominal.z() << std::endl;
+    //std::cout << "quat_nominal = " << state_.quat_nominal.w() << " " << state_.quat_nominal.x() << " " << state_.quat_nominal.y() << " " << state_.quat_nominal.z() << std::endl;
     mat3 R_to_earth = quat_to_invrotmat(state_.quat_nominal);
-    std::cout << "R_to_earth = " << std::endl << R_to_earth << std::endl;
+    //std::cout << "R_to_earth = " << std::endl << R_to_earth << std::endl;
 	  {
       // calculate observaton jacobian when we are observing a rotation in a 312 sequence
       scalar_t t9 = q0*q3;
@@ -365,7 +481,7 @@ namespace eskf {
 			float Tbn_0_1_neg = 2.0f * (q_nb.w() * q_nb.z() - q_nb.x() * q_nb.y());
 			float Tbn_1_1 = sq(q_nb.w()) - sq(q_nb.x()) + sq(q_nb.y()) - sq(q_nb.z());
 			measured_hdg = atan2f(Tbn_0_1_neg, Tbn_1_1);
-      std::cout << "measured_hdg = " << measured_hdg*57.3 << std::endl;
+      //std::cout << "measured_hdg = " << measured_hdg*57.3 << std::endl;
 	  }
 
     scalar_t R_YAW = sq(fmaxf(yaw_err, 1.0e-2f));

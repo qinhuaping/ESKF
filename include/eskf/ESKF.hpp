@@ -73,6 +73,8 @@ namespace eskf {
     quat q_ne; ///< rotation from NED to ENU
     quat q_rb; ///< rotation from ROS body to PX4 body
     quat q_nb; ///< resulting rotation from ned to body
+    
+    scalar_t last_known_yaw, last_known_pitch, last_known_roll;
   };
 }
 

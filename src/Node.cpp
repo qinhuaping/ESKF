@@ -43,10 +43,12 @@ namespace eskf {
       // roll-pitch-yaw (deg)
       geometry_msgs::Vector3Stamped rpy;
       rpy.header = imu.header;
-      rpy.vector.x = orientation[0]*57.3f;
-      rpy.vector.y = orientation[1]*57.3f;
-      rpy.vector.z = orientation[2]*57.3f;
-      
+      rpy.vector.x = orientation[0];
+      rpy.vector.y = orientation[1];
+      rpy.vector.z = orientation[2];
+      //printf("roll = %.4f\n", rpy.vector.x);
+      //printf("pitch = %.4f\n", rpy.vector.y);
+      //printf("yaw = %.4f\n\n", rpy.vector.z);
       // publish our topics
       pubRPY_.publish(rpy);
     }
@@ -54,6 +56,7 @@ namespace eskf {
   }
   
   void Node::measurementCallback(const geometry_msgs::PoseStampedConstPtr& poseMsg) {
+    /*
     if(prevStampPOSE_.sec != 0) {
       const double delta = (poseMsg->header.stamp - prevStampPOSE_).toSec();
       // get measurements
@@ -61,5 +64,6 @@ namespace eskf {
       eskf_.update(z_q, delta);
     }
     prevStampPOSE_ = poseMsg->header.stamp;
+    */
   }
 }
