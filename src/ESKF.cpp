@@ -300,7 +300,6 @@ namespace eskf {
     
     curr_time_sec += dt;
     
-    bool no_measurement = true;
     if(no_measurement) {
       
       scalar_t R[3] = {}; // observation variances for [PN,PE,PD]
@@ -332,66 +331,66 @@ namespace eskf {
       
       // calculate innovation test ratios
       for (unsigned obs_index = 0; obs_index < 3; obs_index++) {
-	// compute the innovation variance SK = HPH + R
-	unsigned state_index = obs_index + 4;	// we start with gyro_bias and this is the 4. state
-	att_innov_var[obs_index] = P_[state_index][state_index] + R[obs_index];
-	// Compute the ratio of innovation to gate size
-	att_test_ratio[obs_index] = sq(att_innov[obs_index]) / (sq(gate_size[obs_index]) * att_innov_var[obs_index]);
+      // compute the innovation variance SK = HPH + R
+      unsigned state_index = obs_index + 4;	// we start with gyro_bias and this is the 4. state
+      att_innov_var[obs_index] = P_[state_index][state_index] + R[obs_index];
+        // Compute the ratio of innovation to gate size
+        att_test_ratio[obs_index] = sq(att_innov[obs_index]) / (sq(gate_size[obs_index]) * att_innov_var[obs_index]);
       }
       
       bool att_check_pass = ((att_test_ratio[0] <= 1.0f) && (att_test_ratio[1] <= 1.0f) && (att_test_ratio[2] <= 1.0f));
       innov_check_pass_map[0] = innov_check_pass_map[1] = innov_check_pass_map[2] = att_check_pass;
       
       for (unsigned obs_index = 0; obs_index < 3; obs_index++) {
-	// skip fusion if not requested or checks have failed
-	if (!innov_check_pass_map[obs_index]) {
-	  continue;
-	}
+	      // skip fusion if not requested or checks have failed
+	      if (!innov_check_pass_map[obs_index]) {
+	        continue;
+	      }
 
-	unsigned state_index = obs_index + 4;	// we start with gyro_bias and this is the 4. state
+        unsigned state_index = obs_index + 4;	// we start with gyro_bias and this is the 4. state
 
-	// calculate kalman gain K = PHS, where S = 1/innovation variance
-	for (int row = 0; row < k_num_states_; row++) {
-	  Kfusion[row] = P_[row][state_index] / att_innov_var[obs_index];
-	}
+        // calculate kalman gain K = PHS, where S = 1/innovation variance
+        for (int row = 0; row < k_num_states_; row++) {
+          Kfusion[row] = P_[row][state_index] / att_innov_var[obs_index];
+        }
 
-	// update covarinace matrix via Pnew = (I - KH)P
-	scalar_t KHP[k_num_states_][k_num_states_];
-	for (unsigned row = 0; row < k_num_states_; row++) {
-	  for (unsigned column = 0; column < k_num_states_; column++) {
-	    KHP[row][column] = Kfusion[row] * P_[state_index][column];
-	  }
-	}
+        // update covarinace matrix via Pnew = (I - KH)P
+        scalar_t KHP[k_num_states_][k_num_states_];
+        for (unsigned row = 0; row < k_num_states_; row++) {
+          for (unsigned column = 0; column < k_num_states_; column++) {
+            KHP[row][column] = Kfusion[row] * P_[state_index][column];
+          }
+        }
 
-	// if the covariance correction will result in a negative variance, then
-	// the covariance marix is unhealthy and must be corrected
-	bool healthy = true;
-	for (int i = 0; i < k_num_states_; i++) {
-	  if (P_[i][i] < KHP[i][i]) {
-	    // zero rows and columns
-	    zeroRows(P_,i,i);
-	    zeroCols(P_,i,i);
+        // if the covariance correction will result in a negative variance, then
+        // the covariance marix is unhealthy and must be corrected
+        bool healthy = true;
+        for (int i = 0; i < k_num_states_; i++) {
+          if (P_[i][i] < KHP[i][i]) {
+            // zero rows and columns
+            zeroRows(P_,i,i);
+            zeroCols(P_,i,i);
 
-	    //flag as unhealthy
-	    healthy = false;
-	  }
-	}
+            //flag as unhealthy
+            healthy = false;
+          }
+        }
 
-	// only apply covariance and state corrrections if healthy
-	if (healthy) {
-	  // apply the covariance corrections
-	  for (unsigned row = 0; row < k_num_states_; row++) {
-	    for (unsigned column = 0; column < k_num_states_; column++) {
-	      P_[row][column] = P_[row][column] - KHP[row][column];
-	    }
-	  }
+        // only apply covariance and state corrrections if healthy
+        if (healthy) {
+          // apply the covariance corrections
+          for (unsigned row = 0; row < k_num_states_; row++) {
+            for (unsigned column = 0; column < k_num_states_; column++) {
+              P_[row][column] = P_[row][column] - KHP[row][column];
+            }
+          }
 
-	  // correct the covariance marix for gross errors
-	  fixCovarianceErrors(dt);
+          // correct the covariance marix for gross errors
+          fixCovarianceErrors(dt);
 
-	  // apply the state corrections
-	  fuse(Kfusion, att_innov[obs_index]);
-	}
+          // apply the state corrections
+          fuse(Kfusion, att_innov[obs_index]);
+        }
       }
       R_to_earth = quat_to_invrotmat(state_.quat_nominal);
       constrainStates(dt);
@@ -402,9 +401,10 @@ namespace eskf {
   }
   
   void ESKF::update(const ESKF::quat& q, scalar_t dt) {
-    if(!firstPredict)
+    if(!firstPredict) {
+      no_measurement = false; // we have measurement now
       return; // if there hasn't been any prediction yet then there should be no correction
-   
+    }
     // q here is rotation from enu to ros body
     updateYaw(q, dt);
   }
@@ -475,7 +475,7 @@ namespace eskf {
       //float pitch = atan2f(-R_to_earth(2, 0), R_to_earth(2, 2)); // third rotation (pitch)
 
       predicted_hdg = yaw; // we will need the predicted heading to calculate the innovation
-      std::cout << "predicted_hdg = " << predicted_hdg*57.3 << std::endl;
+      //std::cout << "predicted_hdg = " << predicted_hdg*57.3 << std::endl;
 			// calculate the yaw angle for a 312 sequence
 			// Values from yaw_input_312.c file produced by https://github.com/PX4/ecl/blob/master/matlab/scripts/Inertial%20Nav%20EKF/quat2yaw312.m
 			float Tbn_0_1_neg = 2.0f * (q_nb.w() * q_nb.z() - q_nb.x() * q_nb.y());

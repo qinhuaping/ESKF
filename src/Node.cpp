@@ -17,9 +17,7 @@ namespace eskf {
   void Node::inputCallback(const sensor_msgs::ImuConstPtr& imuMsg) {
     vec3 wm;        //  measured angular rate
             
-    wm = vec3(imuMsg->angular_velocity.x,
-	      imuMsg->angular_velocity.y,
-	      imuMsg->angular_velocity.z);
+    wm = vec3(imuMsg->angular_velocity.x, imuMsg->angular_velocity.y, imuMsg->angular_velocity.z);
          
     if (prevStampIMU_.sec != 0) {
       
@@ -40,15 +38,12 @@ namespace eskf {
       sensor_msgs::Imu imu = *imuMsg;
       imu.header.seq = 0;
             
-      // roll-pitch-yaw (deg)
+      // roll-pitch-yaw (rad)
       geometry_msgs::Vector3Stamped rpy;
       rpy.header = imu.header;
       rpy.vector.x = orientation[0];
       rpy.vector.y = orientation[1];
       rpy.vector.z = orientation[2];
-      //printf("roll = %.4f\n", rpy.vector.x);
-      //printf("pitch = %.4f\n", rpy.vector.y);
-      //printf("yaw = %.4f\n\n", rpy.vector.z);
       // publish our topics
       pubRPY_.publish(rpy);
     }

@@ -75,6 +75,7 @@ namespace eskf {
     quat q_nb; ///< resulting rotation from ned to body
     
     scalar_t last_known_yaw, last_known_pitch, last_known_roll;
+    bool no_measurement = true;
   };
 }
 
