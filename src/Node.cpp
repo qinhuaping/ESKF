@@ -51,7 +51,6 @@ namespace eskf {
   }
   
   void Node::measurementCallback(const geometry_msgs::PoseStampedConstPtr& poseMsg) {
-    /*
     if(prevStampPOSE_.sec != 0) {
       const double delta = (poseMsg->header.stamp - prevStampPOSE_).toSec();
       // get measurements
@@ -59,6 +58,5 @@ namespace eskf {
       eskf_.update(z_q, delta);
     }
     prevStampPOSE_ = poseMsg->header.stamp;
-    */
   }
 }

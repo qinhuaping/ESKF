@@ -87,9 +87,9 @@ namespace eskf {
   }
   
   ESKF::ESKF() {
-    debugFile << "time_" << "," << "yaw_" << "," << "pitch_" << "," << "roll_" << std::endl;
+    //debugFile << "time_" << "," << "yaw_" << "," << "pitch_" << "," << "roll_" << std::endl;
     //debugFile << "time_" << "," << "dq1_" << "," << "dq2_" << "," << "dq3_" << "," << "dq4_" << std::endl;
-    //debugFile << "time_" << "," << "q1_" << "," << "q2_" << "," << "q3_" << "," << "q4_" << std::endl;
+    debugFile << "time_" << "," << "q1_" << "," << "q2_" << "," << "q3_" << "," << "q4_" << std::endl;
     //debugFile << "time_" << "," << "corrected_delta_ang(0)_" << "," << "corrected_delta_ang(1)_" << "," << "corrected_delta_ang(2)_" << std::endl;
     // zeros state_
     state_.quat_nominal = quat(1, 0, 0, 0);
@@ -163,13 +163,13 @@ namespace eskf {
     state_.quat_nominal = state_.quat_nominal * dq;
     // quaternions must be normalised whenever they are modified
     state_.quat_nominal.normalize();
-    //debugFile << curr_time_sec << "," << state_.quat_nominal.w() << "," << state_.quat_nominal.x() << "," << state_.quat_nominal.y() << "," << state_.quat_nominal.z() << std::endl;
     constrainStates(dt);
+    debugFile << curr_time_sec << "," << state_.quat_nominal.w() << "," << state_.quat_nominal.x() << "," << state_.quat_nominal.y() << "," << state_.quat_nominal.z() << std::endl;
     mat3 R_to_earth = quat_to_invrotmat(state_.quat_nominal);
     scalar_t yaw = atan2f(-R_to_earth(0, 1), R_to_earth(1, 1)); // first rotation (yaw)
     scalar_t pitch = atan2f(-R_to_earth(2, 0), R_to_earth(2, 2)); // third rotation (pitch)
     scalar_t roll = asinf(R_to_earth(2, 1)); // second rotation (roll)
-    debugFile << curr_time_sec << "," << yaw << "," << pitch << "," << roll << std::endl;
+    //debugFile << curr_time_sec << "," << yaw << "," << pitch << "," << roll << std::endl;
     
     // error-state jacobian
     // assign intermediate state variables
@@ -302,8 +302,8 @@ namespace eskf {
     
     if(no_measurement) {
       
-      scalar_t R[3] = {}; // observation variances for [PN,PE,PD]
-      scalar_t gate_size[3] = {}; // innovation consistency check gate sizes for [PN,PE,PD] observations
+      scalar_t R[3] = {}; // observation variances
+      scalar_t gate_size[3] = {}; // innovation consistency check gate sizes for observations
       scalar_t Kfusion[k_num_states_] = {}; // Kalman gain vector for any single observation - sequential fusion is used
       scalar_t att_innov[3] = {}; //
       scalar_t att_innov_var[3] = {}; //
@@ -462,26 +462,14 @@ namespace eskf {
       H_YAW[2] = t8*t14*(-q1*t3+q1*t4+q1*t5+q1*t6-q0*q2*q3*2.0f)*2.0f;
       H_YAW[3] = t8*t14*(q0*t3-q0*t4+q0*t5+q0*t6-q1*q2*q3*2.0f)*2.0f;
 
-      /* Calculate the 312 sequence euler angles that rotate from earth to body frame
-       * Derived from https://github.com/PX4/ecl/blob/master/matlab/scripts/Inertial%20Nav%20EKF/quat2yaw312.m
-       * Body to nav frame transformation using a yaw-roll-pitch rotation sequence is given by:
-       *
-      [ cos(pitch)*cos(yaw) - sin(pitch)*sin(roll)*sin(yaw), -cos(roll)*sin(yaw), cos(yaw)*sin(pitch) + cos(pitch)*sin(roll)*sin(yaw)]
-      [ cos(pitch)*sin(yaw) + cos(yaw)*sin(pitch)*sin(roll),  cos(roll)*cos(yaw), sin(pitch)*sin(yaw) - cos(pitch)*cos(yaw)*sin(roll)]
-      [                               -cos(roll)*sin(pitch),           sin(roll),                                cos(pitch)*cos(roll)]
-      */
       scalar_t yaw = atan2f(-R_to_earth(0, 1), R_to_earth(1, 1)); // first rotation (yaw)
-      //float roll = asinf(R_to_earth(2, 1)); // second rotation (roll)
-      //float pitch = atan2f(-R_to_earth(2, 0), R_to_earth(2, 2)); // third rotation (pitch)
 
       predicted_hdg = yaw; // we will need the predicted heading to calculate the innovation
-      //std::cout << "predicted_hdg = " << predicted_hdg*57.3 << std::endl;
 			// calculate the yaw angle for a 312 sequence
 			// Values from yaw_input_312.c file produced by https://github.com/PX4/ecl/blob/master/matlab/scripts/Inertial%20Nav%20EKF/quat2yaw312.m
 			float Tbn_0_1_neg = 2.0f * (q_nb.w() * q_nb.z() - q_nb.x() * q_nb.y());
 			float Tbn_1_1 = sq(q_nb.w()) - sq(q_nb.x()) + sq(q_nb.y()) - sq(q_nb.z());
 			measured_hdg = atan2f(Tbn_0_1_neg, Tbn_1_1);
-      //std::cout << "measured_hdg = " << measured_hdg*57.3 << std::endl;
 	  }
 
     scalar_t R_YAW = sq(fmaxf(yaw_err, 1.0e-2f));
@@ -540,15 +528,15 @@ namespace eskf {
 	  
     // set the vision yaw unhealthy if the test fails
 	  if (yaw_test_ratio > 1.0f) {
-      printf("!!!!!\n");
+      printf("yaw test ratio is unhealthy\n");
       scalar_t gate_limit = sqrtf(sq(heading_innov_gate) * heading_innov_var);
 			heading_innov = constrain(heading_innov, -gate_limit, gate_limit);
 		  //return;
-		} /*else {
+		} else {
 			// constrain the innovation to the maximum set by the gate
 			scalar_t gate_limit = sqrtf(sq(heading_innov_gate) * heading_innov_var);
 			heading_innov = constrain(heading_innov, -gate_limit, gate_limit);
-		}*/
+		}
 	
     // apply covariance correction via P_new = (I -K*H)*P
     // first calculate expression for KHP
@@ -630,11 +618,6 @@ namespace eskf {
   }
   
   void ESKF::fixCovarianceErrors(scalar_t dt) {
-    // NOTE: This limiting is a last resort and should not be relied on
-    // TODO: Split covariance prediction into separate F*P*transpose(F) and Q contributions
-    // and set corresponding entries in Q to zero when states exceed 50% of the limit
-    // Covariance diagonal limits. Use same values for states which
-    // belong to the same group (e.g. vel_x, vel_y, vel_z)
     scalar_t P_lim[2] = {};
     P_lim[0] = 1.0f;		// quaternion max var
     P_lim[1] = 1.0f;		// gyro bias max var
