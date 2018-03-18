@@ -16,21 +16,22 @@ namespace eskf {
 
   void Node::inputCallback(const sensor_msgs::ImuConstPtr& imuMsg) {
     vec3 wm;        //  measured angular rate
-            
+    vec3 am;        //  measured linear acceleration
+
     wm = vec3(imuMsg->angular_velocity.x, imuMsg->angular_velocity.y, imuMsg->angular_velocity.z);
-         
+    am = vec3(imuMsg->linear_acceleration.x, imuMsg->linear_acceleration.y, imuMsg->linear_acceleration.z);
+
     if (prevStampIMU_.sec != 0) {
-      
+
       const double delta = (imuMsg->header.stamp - prevStampIMU_).toSec();
       
       if (!init_) {
-	      eskf_.initialize(delta);
         init_ = true;
         ROS_INFO("Initialized ESKF");
       }
       
       //  run kalman filter
-      eskf_.predict(wm, delta);
+      eskf_.predict(wm, am, delta);
       
       const eskf::ESKF::quat n2b = eskf_.getQuat();
       const vec3 orientation = eskf_.getRPY(n2b.matrix());
