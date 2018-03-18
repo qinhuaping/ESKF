@@ -5,7 +5,7 @@
   <!-- IMU topic to use -->
   <arg name="imu_topic" default="/mavros/imu/data"/>
 
-  <!-- VEL topic to use -->
+  <!-- POSE topic to use -->
   <arg name="pose_topic" default="/mavros/local_position/pose"/>
   
   <node pkg="eskf" name="$(arg eskf_node)" type="eskf" output="screen">
