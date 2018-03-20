@@ -133,14 +133,15 @@ namespace eskf {
 
   private:
     
-    void constrainStates(scalar_t dt);
+    void constrainStates();
     void initialiseQuatCovariances(const vec3& rot_vec_var);
 	  void zeroRows(scalar_t (&cov_mat)[k_num_states_][k_num_states_], uint8_t first, uint8_t last);
     void zeroCols(scalar_t (&cov_mat)[k_num_states_][k_num_states_], uint8_t first, uint8_t last);
     void makeSymmetrical(scalar_t (&cov_mat)[k_num_states_][k_num_states_], uint8_t first, uint8_t last);
 	  void fuse(scalar_t *K, scalar_t innovation);
-    void fixCovarianceErrors(scalar_t dt);
+    void fixCovarianceErrors();
     void initialiseCovariance();
+    void predictCovariance();
     //void updatePos(const vec3& p, scalar_t dt);
     //void updateYaw(const quat& q, scalar_t dt);
     mat3 quat_to_invrotmat(const quat &q);

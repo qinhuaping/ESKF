@@ -7,12 +7,14 @@
 #include <iostream>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 
 using namespace Eigen;
 
 namespace eskf {
   
   std::ofstream debugFile("/home/elia/Documents/eskf.csv");
+  std::ofstream debugFileCov("/home/elia/Documents/eskfcov.csv");
   static double curr_time_sec = 0.0; 
   
   template <typename T> inline T sq(T var) {
@@ -118,8 +120,8 @@ namespace eskf {
 						  << "vel0_" << "," << "vel1_" << "," << "vel2_" << ","
 			        << "pos0_" << "," << "pos1_" << "," << "pos2_" << ","
               << "dt_" << ","
-              << "gyr0_" << "," << "gyr1_" << "," << "gyr2_" << ","
-              << "acc0_" << "," << "acc1_" << "," << "acc2_" << std::endl;
+              << "delta_ang_dt_" << "," << "delta_vel_dt_" << ","; 
+              << "d_ang_bias_sig_" << "," << "d_vel_bias_sig_" << std::endl;
     //debugFile << "time_" << "," << "q_down_sampled0_" << "," << "q_down_sampled1_" << "," << "q_down_sampled2_" << "," << "q_down_sampled3_" << "," << std::endl;
     //debugFile << "time_" << "," << "_imu_down_sampled_delta_vel0_" << "," << "_imu_down_sampled_delta_vel1_" << "," << "_imu_down_sampled_delta_vel2_" << std::endl;
     /*
@@ -306,7 +308,7 @@ namespace eskf {
 		  scalar_t roll = 0.0;
       scalar_t yaw = 0.0;
       imuSample imu_init = _imu_buffer.get_newest();
-      vec3 _delVel_sum = imu_init.delta_vel; //vec3(0.002f, 0.002f, 0.002f);//
+      vec3 _delVel_sum = imu_init.delta_vel;
       printf("_delVel_sum: x = %.7f, y = %.7f, z = %.7f\n", _delVel_sum(0), _delVel_sum(1), _delVel_sum(2));
       if (_delVel_sum.norm() > 0.001) {
         _delVel_sum.normalize();
@@ -365,8 +367,21 @@ namespace eskf {
     state_.pos += (vel_last + state_.vel) * _imu_sample_delayed.delta_vel_dt * 0.5f;
     debugFile << state_.pos(0) << "," << state_.pos(1) << "," << state_.pos(2) << ",";
     
-    constrainStates(_dt_ekf_avg);
-    /*
+    constrainStates();
+        
+    curr_time_sec += dt;
+    
+    // calculate an average filter update time
+	  scalar_t input = 0.5f * (_imu_sample_delayed.delta_vel_dt + _imu_sample_delayed.delta_ang_dt);
+
+	  // filter and limit input between -50% and +100% of nominal value
+	  input = constrain(input, 0.0005f * (scalar_t)(FILTER_UPDATE_PERIOD_MS), 0.002f * (scalar_t)(FILTER_UPDATE_PERIOD_MS));
+	  _dt_ekf_avg = 0.99f * _dt_ekf_avg + 0.01f * input;
+    
+    predictCovariance();
+  }
+  
+  void ESKF::predictCovariance() {
     // error-state jacobian
     // assign intermediate state variables
     scalar_t q0 = state_.quat_nominal.w();
@@ -392,13 +407,19 @@ namespace eskf {
 	  
     // compute noise variance for stationary processes
     scalar_t process_noise[k_num_states_] = {};
-
+    
+    float dt = constrain(_imu_sample_delayed.delta_ang_dt, 0.0005f * (scalar_t)(FILTER_UPDATE_PERIOD_MS), 0.002f * (scalar_t)(FILTER_UPDATE_PERIOD_MS));
+    
+    debugFile << dt << ",";
+    
     // convert rate of change of rate gyro bias (rad/s**2) as specified by the parameter to an expected change in delta angle (rad) since the last update
-    scalar_t d_ang_bias_sig = _dt_ekf_avg * _dt_ekf_avg * constrain(gyro_bias_p_noise, 0.0, 1.0);
+    scalar_t d_ang_bias_sig = dt * dt * constrain(gyro_bias_p_noise, 0.0, 1.0);
 
     // convert rate of change of accelerometer bias (m/s**3) as specified by the parameter to an expected change in delta velocity (m/s) since the last update
-    scalar_t d_vel_bias_sig = _dt_ekf_avg * _dt_ekf_avg * constrain(accel_bias_p_noise, 0.0, 1.0);
-    
+    scalar_t d_vel_bias_sig = dt * dt * constrain(accel_bias_p_noise, 0.0, 1.0);
+        
+    debugFile << d_ang_bias_sig << "," << d_vel_bias_sig << std::endl;
+        
     // Construct the process noise variance diagonal for those states with a stationary process model
     // These are kinematic states and their error growth is controlled separately by the IMU noise variances
     for (unsigned i = 0; i <= 9; i++) {
@@ -415,9 +436,9 @@ namespace eskf {
     scalar_t daxVar, dayVar, dazVar;
     scalar_t dvxVar, dvyVar, dvzVar;
     gyro_noise = constrain(gyro_noise, 0.0, 1.0);
-    daxVar = dayVar = dazVar = sq(_dt_ekf_avg * gyro_noise); // gyro prediction variance TODO get variance from sensor
+    daxVar = dayVar = dazVar = sq(dt * gyro_noise); // gyro prediction variance TODO get variance from sensor
     accel_noise = constrain(accel_noise, 0.0, 1.0);
-    dvxVar = dvyVar = dvzVar = sq(_dt_ekf_avg * accel_noise); //accel prediction variance TODO get variance from sensor
+    dvxVar = dvyVar = dvzVar = sq(dt * accel_noise); //accel prediction variance TODO get variance from sensor
 
     // intermediate calculations
     scalar_t SF[21];
@@ -425,7 +446,7 @@ namespace eskf {
     SF[1] = dvy - dvy_b;
     SF[2] = dvx - dvx_b;
     SF[3] = 2*q1*SF[2] + 2*q2*SF[1] + 2*q3*SF[0];
-    SF[4] = 2*q0*SF[1] - 2*q1*SF[0] + 2*q3*SF[2];state_.quat_nominal =
+    SF[4] = 2*q0*SF[1] - 2*q1*SF[0] + 2*q3*SF[2];
     SF[5] = 2*q0*SF[2] + 2*q2*SF[0] - 2*q3*SF[1];
     SF[6] = day/2 - day_b/2;
     SF[7] = daz/2 - daz_b/2;
@@ -436,7 +457,7 @@ namespace eskf {
     SF[12] = 2*q1*SF[1];
     SF[13] = 2*q0*SF[0];
     SF[14] = q1/2;
-    SF[15] = q2/2;state_.quat_nominal =
+    SF[15] = q2/2;
     SF[16] = q3/2;
     SF[17] = sq(q3);
     SF[18] = sq(q2);
@@ -457,7 +478,7 @@ namespace eskf {
     SQ[0] = dvzVar*(SG[5] - 2*q0*q1)*(SG[1] - SG[2] - SG[3] + SG[4]) - dvyVar*(SG[5] + 2*q0*q1)*(SG[1] - SG[2] + SG[3] - SG[4]) + dvxVar*(SG[6] - 2*q0*q2)*(SG[7] + 2*q0*q3);
     SQ[1] = dvzVar*(SG[6] + 2*q0*q2)*(SG[1] - SG[2] - SG[3] + SG[4]) - dvxVar*(SG[6] - 2*q0*q2)*(SG[1] + SG[2] - SG[3] - SG[4]) + dvyVar*(SG[5] + 2*q0*q1)*(SG[7] - 2*q0*q3);
     SQ[2] = dvzVar*(SG[5] - 2*q0*q1)*(SG[6] + 2*q0*q2) - dvyVar*(SG[7] - 2*q0*q3)*(SG[1] - SG[2] + SG[3] - SG[4]) - dvxVar*(SG[7] + 2*q0*q3)*(SG[1] + SG[2] - SG[3] - SG[4]);
-    SQ[3] = (dayVar*q1*SG[0])/2 - (dazVar*q1*SG[0])/2 - (daxVar*q2*q3)/4;state_.quat_nominal =
+    SQ[3] = (dayVar*q1*SG[0])/2 - (dazVar*q1*SG[0])/2 - (daxVar*q2*q3)/4;
     SQ[4] = (dazVar*q2*SG[0])/2 - (daxVar*q2*SG[0])/2 - (dayVar*q1*q3)/4;
     SQ[5] = (daxVar*q3*SG[0])/2 - (dayVar*q3*SG[0])/2 - (dazVar*q1*q2)/4;
     SQ[6] = (daxVar*q1*q2)/4 - (dazVar*q3*SG[0])/2 - (dayVar*q1*q2)/4;
@@ -510,33 +531,33 @@ namespace eskf {
     nextP[4][6] = P_[4][6] + SQ[1] + P_[0][6]*SF[5] + P_[1][6]*SF[3] - P_[3][6]*SF[4] + P_[2][6]*SPP[0] + P_[13][6]*SPP[3] + P_[14][6]*SPP[6] - P_[15][6]*SPP[9] + SF[4]*(P_[4][1] + P_[0][1]*SF[5] + P_[1][1]*SF[3] - P_[3][1]*SF[4] + P_[2][1]*SPP[0] + P_[13][1]*SPP[3] + P_[14][1]*SPP[6] - P_[15][1]*SPP[9]) - SF[5]*(P_[4][2] + P_[0][2]*SF[5] + P_[1][2]*SF[3] - P_[3][2]*SF[4] + P_[2][2]*SPP[0] + P_[13][2]*SPP[3] + P_[14][2]*SPP[6] - P_[15][2]*SPP[9]) + SF[3]*(P_[4][3] + P_[0][3]*SF[5] + P_[1][3]*SF[3] - P_[3][3]*SF[4] + P_[2][3]*SPP[0] + P_[13][3]*SPP[3] + P_[14][3]*SPP[6] - P_[15][3]*SPP[9]) + SPP[0]*(P_[4][0] + P_[0][0]*SF[5] + P_[1][0]*SF[3] - P_[3][0]*SF[4] + P_[2][0]*SPP[0] + P_[13][0]*SPP[3] + P_[14][0]*SPP[6] - P_[15][0]*SPP[9]) + SPP[4]*(P_[4][13] + P_[0][13]*SF[5] + P_[1][13]*SF[3] - P_[3][13]*SF[4] + P_[2][13]*SPP[0] + P_[13][13]*SPP[3] + P_[14][13]*SPP[6] - P_[15][13]*SPP[9]) - SPP[7]*(P_[4][14] + P_[0][14]*SF[5] + P_[1][14]*SF[3] - P_[3][14]*SF[4] + P_[2][14]*SPP[0] + P_[13][14]*SPP[3] + P_[14][14]*SPP[6] - P_[15][14]*SPP[9]) - SPP[1]*(P_[4][15] + P_[0][15]*SF[5] + P_[1][15]*SF[3] - P_[3][15]*SF[4] + P_[2][15]*SPP[0] + P_[13][15]*SPP[3] + P_[14][15]*SPP[6] - P_[15][15]*SPP[9]);
     nextP[5][6] = P_[5][6] + SQ[0] + P_[0][6]*SF[4] + P_[2][6]*SF[3] + P_[3][6]*SF[5] - P_[1][6]*SPP[0] - P_[13][6]*SPP[8] + P_[14][6]*SPP[2] + P_[15][6]*SPP[5] + SF[4]*(P_[5][1] + P_[0][1]*SF[4] + P_[2][1]*SF[3] + P_[3][1]*SF[5] - P_[1][1]*SPP[0] - P_[13][1]*SPP[8] + P_[14][1]*SPP[2] + P_[15][1]*SPP[5]) - SF[5]*(P_[5][2] + P_[0][2]*SF[4] + P_[2][2]*SF[3] + P_[3][2]*SF[5] - P_[1][2]*SPP[0] - P_[13][2]*SPP[8] + P_[14][2]*SPP[2] + P_[15][2]*SPP[5]) + SF[3]*(P_[5][3] + P_[0][3]*SF[4] + P_[2][3]*SF[3] + P_[3][3]*SF[5] - P_[1][3]*SPP[0] - P_[13][3]*SPP[8] + P_[14][3]*SPP[2] + P_[15][3]*SPP[5]) + SPP[0]*(P_[5][0] + P_[0][0]*SF[4] + P_[2][0]*SF[3] + P_[3][0]*SF[5] - P_[1][0]*SPP[0] - P_[13][0]*SPP[8] + P_[14][0]*SPP[2] + P_[15][0]*SPP[5]) + SPP[4]*(P_[5][13] + P_[0][13]*SF[4] + P_[2][13]*SF[3] + P_[3][13]*SF[5] - P_[1][13]*SPP[0] - P_[13][13]*SPP[8] + P_[14][13]*SPP[2] + P_[15][13]*SPP[5]) - SPP[7]*(P_[5][14] + P_[0][14]*SF[4] + P_[2][14]*SF[3] + P_[3][14]*SF[5] - P_[1][14]*SPP[0] - P_[13][14]*SPP[8] + P_[14][14]*SPP[2] + P_[15][14]*SPP[5]) - SPP[1]*(P_[5][15] + P_[0][15]*SF[4] + P_[2][15]*SF[3] + P_[3][15]*SF[5] - P_[1][15]*SPP[0] - P_[13][15]*SPP[8] + P_[14][15]*SPP[2] + P_[15][15]*SPP[5]);
     nextP[6][6] = P_[6][6] + P_[1][6]*SF[4] - P_[2][6]*SF[5] + P_[3][6]*SF[3] + P_[0][6]*SPP[0] + P_[13][6]*SPP[4] - P_[14][6]*SPP[7] - P_[15][6]*SPP[1] + dvxVar*sq(SG[6] - 2*q0*q2) + dvyVar*sq(SG[5] + 2*q0*q1) + SF[4]*(P_[6][1] + P_[1][1]*SF[4] - P_[2][1]*SF[5] + P_[3][1]*SF[3] + P_[0][1]*SPP[0] + P_[13][1]*SPP[4] - P_[14][1]*SPP[7] - P_[15][1]*SPP[1]) - SF[5]*(P_[6][2] + P_[1][2]*SF[4] - P_[2][2]*SF[5] + P_[3][2]*SF[3] + P_[0][2]*SPP[0] + P_[13][2]*SPP[4] - P_[14][2]*SPP[7] - P_[15][2]*SPP[1]) + SF[3]*(P_[6][3] + P_[1][3]*SF[4] - P_[2][3]*SF[5] + P_[3][3]*SF[3] + P_[0][3]*SPP[0] + P_[13][3]*SPP[4] - P_[14][3]*SPP[7] - P_[15][3]*SPP[1]) + SPP[0]*(P_[6][0] + P_[1][0]*SF[4] - P_[2][0]*SF[5] + P_[3][0]*SF[3] + P_[0][0]*SPP[0] + P_[13][0]*SPP[4] - P_[14][0]*SPP[7] - P_[15][0]*SPP[1]) + SPP[4]*(P_[6][13] + P_[1][13]*SF[4] - P_[2][13]*SF[5] + P_[3][13]*SF[3] + P_[0][13]*SPP[0] + P_[13][13]*SPP[4] - P_[14][13]*SPP[7] - P_[15][13]*SPP[1]) - SPP[7]*(P_[6][14] + P_[1][14]*SF[4] - P_[2][14]*SF[5] + P_[3][14]*SF[3] + P_[0][14]*SPP[0] + P_[13][14]*SPP[4] - P_[14][14]*SPP[7] - P_[15][14]*SPP[1]) - SPP[1]*(P_[6][15] + P_[1][15]*SF[4] - P_[2][15]*SF[5] + P_[3][15]*SF[3] + P_[0][15]*SPP[0] + P_[13][15]*SPP[4] - P_[14][15]*SPP[7] - P_[15][15]*SPP[1]) + dvzVar*sq(SG[1] - SG[2] - SG[3] + SG[4]);
-    nextP[0][7] = P_[0][7] + P_[1][7]*SF[9] + P_[2][7]*SF[11] + P_[3][7]*SF[10] + P_[10][7]*SF[14] + P_[11][7]*SF[15] + P_[12][7]*SPP[10] + _dt_ekf_avg*(P_[0][4] + P_[1][4]*SF[9] + P_[2][4]*SF[11] + P_[3][4]*SF[10] + P_[10][4]*SF[14] + P_[11][4]*SF[15] + P_[12][4]*SPP[10]);
-    nextP[1][7] = P_[1][7] + P_[0][7]*SF[8] + P_[2][7]*SF[7] + P_[3][7]*SF[11] - P_[12][7]*SF[15] + P_[11][7]*SPP[10] - (P_[10][7]*q0)/2 + _dt_ekf_avg*(P_[1][4] + P_[0][4]*SF[8] + P_[2][4]*SF[7] + P_[3][4]*SF[11] - P_[12][4]*SF[15] + P_[11][4]*SPP[10] - (P_[10][4]*q0)/2);
-    nextP[2][7] = P_[2][7] + P_[0][7]*SF[6] + P_[1][7]*SF[10] + P_[3][7]*SF[8] + P_[12][7]*SF[14] - P_[10][7]*SPP[10] - (P_[11][7]*q0)/2 + _dt_ekf_avg*(P_[2][4] + P_[0][4]*SF[6] + P_[1][4]*SF[10] + P_[3][4]*SF[8] + P_[12][4]*SF[14] - P_[10][4]*SPP[10] - (P_[11][4]*q0)/2);
-    nextP[3][7] = P_[3][7] + P_[0][7]*SF[7] + P_[1][7]*SF[6] + P_[2][7]*SF[9] + P_[10][7]*SF[15] - P_[11][7]*SF[14] - (P_[12][7]*q0)/2 + _dt_ekf_avg*(P_[3][4] + P_[0][4]*SF[7] + P_[1][4]*SF[6] + P_[2][4]*SF[9] + P_[10][4]*SF[15] - P_[11][4]*SF[14] - (P_[12][4]*q0)/2);
-    nextP[4][7] = P_[4][7] + P_[0][7]*SF[5] + P_[1][7]*SF[3] - P_[3][7]*SF[4] + P_[2][7]*SPP[0] + P_[13][7]*SPP[3] + P_[14][7]*SPP[6] - P_[15][7]*SPP[9] + _dt_ekf_avg*(P_[4][4] + P_[0][4]*SF[5] + P_[1][4]*SF[3] - P_[3][4]*SF[4] + P_[2][4]*SPP[0] + P_[13][4]*SPP[3] + P_[14][4]*SPP[6] - P_[15][4]*SPP[9]);
-    nextP[5][7] = P_[5][7] + P_[0][7]*SF[4] + P_[2][7]*SF[3] + P_[3][7]*SF[5] - P_[1][7]*SPP[0] - P_[13][7]*SPP[8] + P_[14][7]*SPP[2] + P_[15][7]*SPP[5] + _dt_ekf_avg*(P_[5][4] + P_[0][4]*SF[4] + P_[2][4]*SF[3] + P_[3][4]*SF[5] - P_[1][4]*SPP[0] - P_[13][4]*SPP[8] + P_[14][4]*SPP[2] + P_[15][4]*SPP[5]);
-    nextP[6][7] = P_[6][7] + P_[1][7]*SF[4] - P_[2][7]*SF[5] + P_[3][7]*SF[3] + P_[0][7]*SPP[0] + P_[13][7]*SPP[4] - P_[14][7]*SPP[7] - P_[15][7]*SPP[1] + _dt_ekf_avg*(P_[6][4] + P_[1][4]*SF[4] - P_[2][4]*SF[5] + P_[3][4]*SF[3] + P_[0][4]*SPP[0] + P_[13][4]*SPP[4] - P_[14][4]*SPP[7] - P_[15][4]*SPP[1]);
-    nextP[7][7] = P_[7][7] + P_[4][7]*_dt_ekf_avg + _dt_ekf_avg*(P_[7][4] + P_[4][4]*_dt_ekf_avg);
-    nextP[0][8] = P_[0][8] + P_[1][8]*SF[9] + P_[2][8]*SF[11] + P_[3][8]*SF[10] + P_[10][8]*SF[14] + P_[11][8]*SF[15] + P_[12][8]*SPP[10] + _dt_ekf_avg*(P_[0][5] + P_[1][5]*SF[9] + P_[2][5]*SF[11] + P_[3][5]*SF[10] + P_[10][5]*SF[14] + P_[11][5]*SF[15] + P_[12][5]*SPP[10]);
-    nextP[1][8] = P_[1][8] + P_[0][8]*SF[8] + P_[2][8]*SF[7] + P_[3][8]*SF[11] - P_[12][8]*SF[15] + P_[11][8]*SPP[10] - (P_[10][8]*q0)/2 + _dt_ekf_avg*(P_[1][5] + P_[0][5]*SF[8] + P_[2][5]*SF[7] + P_[3][5]*SF[11] - P_[12][5]*SF[15] + P_[11][5]*SPP[10] - (P_[10][5]*q0)/2);
-    nextP[2][8] = P_[2][8] + P_[0][8]*SF[6] + P_[1][8]*SF[10] + P_[3][8]*SF[8] + P_[12][8]*SF[14] - P_[10][8]*SPP[10] - (P_[11][8]*q0)/2 + _dt_ekf_avg*(P_[2][5] + P_[0][5]*SF[6] + P_[1][5]*SF[10] + P_[3][5]*SF[8] + P_[12][5]*SF[14] - P_[10][5]*SPP[10] - (P_[11][5]*q0)/2);
-    nextP[3][8] = P_[3][8] + P_[0][8]*SF[7] + P_[1][8]*SF[6] + P_[2][8]*SF[9] + P_[10][8]*SF[15] - P_[11][8]*SF[14] - (P_[12][8]*q0)/2 + _dt_ekf_avg*(P_[3][5] + P_[0][5]*SF[7] + P_[1][5]*SF[6] + P_[2][5]*SF[9] + P_[10][5]*SF[15] - P_[11][5]*SF[14] - (P_[12][5]*q0)/2);
-    nextP[4][8] = P_[4][8] + P_[0][8]*SF[5] + P_[1][8]*SF[3] - P_[3][8]*SF[4] + P_[2][8]*SPP[0] + P_[13][8]*SPP[3] + P_[14][8]*SPP[6] - P_[15][8]*SPP[9] + _dt_ekf_avg*(P_[4][5] + P_[0][5]*SF[5] + P_[1][5]*SF[3] - P_[3][5]*SF[4] + P_[2][5]*SPP[0] + P_[13][5]*SPP[3] + P_[14][5]*SPP[6] - P_[15][5]*SPP[9]);
-    nextP[5][8] = P_[5][8] + P_[0][8]*SF[4] + P_[2][8]*SF[3] + P_[3][8]*SF[5] - P_[1][8]*SPP[0] - P_[13][8]*SPP[8] + P_[14][8]*SPP[2] + P_[15][8]*SPP[5] + _dt_ekf_avg*(P_[5][5] + P_[0][5]*SF[4] + P_[2][5]*SF[3] + P_[3][5]*SF[5] - P_[1][5]*SPP[0] - P_[13][5]*SPP[8] + P_[14][5]*SPP[2] + P_[15][5]*SPP[5]);
-    nextP[6][8] = P_[6][8] + P_[1][8]*SF[4] - P_[2][8]*SF[5] + P_[3][8]*SF[3] + P_[0][8]*SPP[0] + P_[13][8]*SPP[4] - P_[14][8]*SPP[7] - P_[15][8]*SPP[1] + _dt_ekf_avg*(P_[6][5] + P_[1][5]*SF[4] - P_[2][5]*SF[5] + P_[3][5]*SF[3] + P_[0][5]*SPP[0] + P_[13][5]*SPP[4] - P_[14][5]*SPP[7] - P_[15][5]*SPP[1]);
-    nextP[7][8] = P_[7][8] + P_[4][8]*_dt_ekf_avg + _dt_ekf_avg*(P_[7][5] + P_[4][5]*_dt_ekf_avg);
-    nextP[8][8] = P_[8][8] + P_[5][8]*_dt_ekf_avg + _dt_ekf_avg*(P_[8][5] + P_[5][5]*_dt_ekf_avg);
-    nextP[0][9] = P_[0][9] + P_[1][9]*SF[9] + P_[2][9]*SF[11] + P_[3][9]*SF[10] + P_[10][9]*SF[14] + P_[11][9]*SF[15] + P_[12][9]*SPP[10] + _dt_ekf_avg*(P_[0][6] + P_[1][6]*SF[9] + P_[2][6]*SF[11] + P_[3][6]*SF[10] + P_[10][6]*SF[14] + P_[11][6]*SF[15] + P_[12][6]*SPP[10]);
-    nextP[1][9] = P_[1][9] + P_[0][9]*SF[8] + P_[2][9]*SF[7] + P_[3][9]*SF[11] - P_[12][9]*SF[15] + P_[11][9]*SPP[10] - (P_[10][9]*q0)/2 + _dt_ekf_avg*(P_[1][6] + P_[0][6]*SF[8] + P_[2][6]*SF[7] + P_[3][6]*SF[11] - P_[12][6]*SF[15] + P_[11][6]*SPP[10] - (P_[10][6]*q0)/2);
-    nextP[2][9] = P_[2][9] + P_[0][9]*SF[6] + P_[1][9]*SF[10] + P_[3][9]*SF[8] + P_[12][9]*SF[14] - P_[10][9]*SPP[10] - (P_[11][9]*q0)/2 + _dt_ekf_avg*(P_[2][6] + P_[0][6]*SF[6] + P_[1][6]*SF[10] + P_[3][6]*SF[8] + P_[12][6]*SF[14] - P_[10][6]*SPP[10] - (P_[11][6]*q0)/2);
-    nextP[3][9] = P_[3][9] + P_[0][9]*SF[7] + P_[1][9]*SF[6] + P_[2][9]*SF[9] + P_[10][9]*SF[15] - P_[11][9]*SF[14] - (P_[12][9]*q0)/2 + _dt_ekf_avg*(P_[3][6] + P_[0][6]*SF[7] + P_[1][6]*SF[6] + P_[2][6]*SF[9] + P_[10][6]*SF[15] - P_[11][6]*SF[14] - (P_[12][6]*q0)/2);
-    nextP[4][9] = P_[4][9] + P_[0][9]*SF[5] + P_[1][9]*SF[3] - P_[3][9]*SF[4] + P_[2][9]*SPP[0] + P_[13][9]*SPP[3] + P_[14][9]*SPP[6] - P_[15][9]*SPP[9] + _dt_ekf_avg*(P_[4][6] + P_[0][6]*SF[5] + P_[1][6]*SF[3] - P_[3][6]*SF[4] + P_[2][6]*SPP[0] + P_[13][6]*SPP[3] + P_[14][6]*SPP[6] - P_[15][6]*SPP[9]);
-    nextP[5][9] = P_[5][9] + P_[0][9]*SF[4] + P_[2][9]*SF[3] + P_[3][9]*SF[5] - P_[1][9]*SPP[0] - P_[13][9]*SPP[8] + P_[14][9]*SPP[2] + P_[15][9]*SPP[5] + _dt_ekf_avg*(P_[5][6] + P_[0][6]*SF[4] + P_[2][6]*SF[3] + P_[3][6]*SF[5] - P_[1][6]*SPP[0] - P_[13][6]*SPP[8] + P_[14][6]*SPP[2] + P_[15][6]*SPP[5]);
-    nextP[6][9] = P_[6][9] + P_[1][9]*SF[4] - P_[2][9]*SF[5] + P_[3][9]*SF[3] + P_[0][9]*SPP[0] + P_[13][9]*SPP[4] - P_[14][9]*SPP[7] - P_[15][9]*SPP[1] + _dt_ekf_avg*(P_[6][6] + P_[1][6]*SF[4] - P_[2][6]*SF[5] + P_[3][6]*SF[3] + P_[0][6]*SPP[0] + P_[13][6]*SPP[4] - P_[14][6]*SPP[7] - P_[15][6]*SPP[1]);
-    nextP[7][9] = P_[7][9] + P_[4][9]*_dt_ekf_avg + _dt_ekf_avg*(P_[7][6] + P_[4][6]*_dt_ekf_avg);
-    nextP[8][9] = P_[8][9] + P_[5][9]*_dt_ekf_avg + _dt_ekf_avg*(P_[8][6] + P_[5][6]*_dt_ekf_avg);
-    nextP[9][9] = P_[9][9] + P_[6][9]*_dt_ekf_avg + _dt_ekf_avg*(P_[9][6] + P_[6][6]*_dt_ekf_avg);
+    nextP[0][7] = P_[0][7] + P_[1][7]*SF[9] + P_[2][7]*SF[11] + P_[3][7]*SF[10] + P_[10][7]*SF[14] + P_[11][7]*SF[15] + P_[12][7]*SPP[10] + dt*(P_[0][4] + P_[1][4]*SF[9] + P_[2][4]*SF[11] + P_[3][4]*SF[10] + P_[10][4]*SF[14] + P_[11][4]*SF[15] + P_[12][4]*SPP[10]);
+    nextP[1][7] = P_[1][7] + P_[0][7]*SF[8] + P_[2][7]*SF[7] + P_[3][7]*SF[11] - P_[12][7]*SF[15] + P_[11][7]*SPP[10] - (P_[10][7]*q0)/2 + dt*(P_[1][4] + P_[0][4]*SF[8] + P_[2][4]*SF[7] + P_[3][4]*SF[11] - P_[12][4]*SF[15] + P_[11][4]*SPP[10] - (P_[10][4]*q0)/2);
+    nextP[2][7] = P_[2][7] + P_[0][7]*SF[6] + P_[1][7]*SF[10] + P_[3][7]*SF[8] + P_[12][7]*SF[14] - P_[10][7]*SPP[10] - (P_[11][7]*q0)/2 + dt*(P_[2][4] + P_[0][4]*SF[6] + P_[1][4]*SF[10] + P_[3][4]*SF[8] + P_[12][4]*SF[14] - P_[10][4]*SPP[10] - (P_[11][4]*q0)/2);
+    nextP[3][7] = P_[3][7] + P_[0][7]*SF[7] + P_[1][7]*SF[6] + P_[2][7]*SF[9] + P_[10][7]*SF[15] - P_[11][7]*SF[14] - (P_[12][7]*q0)/2 + dt*(P_[3][4] + P_[0][4]*SF[7] + P_[1][4]*SF[6] + P_[2][4]*SF[9] + P_[10][4]*SF[15] - P_[11][4]*SF[14] - (P_[12][4]*q0)/2);
+    nextP[4][7] = P_[4][7] + P_[0][7]*SF[5] + P_[1][7]*SF[3] - P_[3][7]*SF[4] + P_[2][7]*SPP[0] + P_[13][7]*SPP[3] + P_[14][7]*SPP[6] - P_[15][7]*SPP[9] + dt*(P_[4][4] + P_[0][4]*SF[5] + P_[1][4]*SF[3] - P_[3][4]*SF[4] + P_[2][4]*SPP[0] + P_[13][4]*SPP[3] + P_[14][4]*SPP[6] - P_[15][4]*SPP[9]);
+    nextP[5][7] = P_[5][7] + P_[0][7]*SF[4] + P_[2][7]*SF[3] + P_[3][7]*SF[5] - P_[1][7]*SPP[0] - P_[13][7]*SPP[8] + P_[14][7]*SPP[2] + P_[15][7]*SPP[5] + dt*(P_[5][4] + P_[0][4]*SF[4] + P_[2][4]*SF[3] + P_[3][4]*SF[5] - P_[1][4]*SPP[0] - P_[13][4]*SPP[8] + P_[14][4]*SPP[2] + P_[15][4]*SPP[5]);
+    nextP[6][7] = P_[6][7] + P_[1][7]*SF[4] - P_[2][7]*SF[5] + P_[3][7]*SF[3] + P_[0][7]*SPP[0] + P_[13][7]*SPP[4] - P_[14][7]*SPP[7] - P_[15][7]*SPP[1] + dt*(P_[6][4] + P_[1][4]*SF[4] - P_[2][4]*SF[5] + P_[3][4]*SF[3] + P_[0][4]*SPP[0] + P_[13][4]*SPP[4] - P_[14][4]*SPP[7] - P_[15][4]*SPP[1]);
+    nextP[7][7] = P_[7][7] + P_[4][7]*dt + dt*(P_[7][4] + P_[4][4]*dt);
+    nextP[0][8] = P_[0][8] + P_[1][8]*SF[9] + P_[2][8]*SF[11] + P_[3][8]*SF[10] + P_[10][8]*SF[14] + P_[11][8]*SF[15] + P_[12][8]*SPP[10] + dt*(P_[0][5] + P_[1][5]*SF[9] + P_[2][5]*SF[11] + P_[3][5]*SF[10] + P_[10][5]*SF[14] + P_[11][5]*SF[15] + P_[12][5]*SPP[10]);
+    nextP[1][8] = P_[1][8] + P_[0][8]*SF[8] + P_[2][8]*SF[7] + P_[3][8]*SF[11] - P_[12][8]*SF[15] + P_[11][8]*SPP[10] - (P_[10][8]*q0)/2 + dt*(P_[1][5] + P_[0][5]*SF[8] + P_[2][5]*SF[7] + P_[3][5]*SF[11] - P_[12][5]*SF[15] + P_[11][5]*SPP[10] - (P_[10][5]*q0)/2);
+    nextP[2][8] = P_[2][8] + P_[0][8]*SF[6] + P_[1][8]*SF[10] + P_[3][8]*SF[8] + P_[12][8]*SF[14] - P_[10][8]*SPP[10] - (P_[11][8]*q0)/2 + dt*(P_[2][5] + P_[0][5]*SF[6] + P_[1][5]*SF[10] + P_[3][5]*SF[8] + P_[12][5]*SF[14] - P_[10][5]*SPP[10] - (P_[11][5]*q0)/2);
+    nextP[3][8] = P_[3][8] + P_[0][8]*SF[7] + P_[1][8]*SF[6] + P_[2][8]*SF[9] + P_[10][8]*SF[15] - P_[11][8]*SF[14] - (P_[12][8]*q0)/2 + dt*(P_[3][5] + P_[0][5]*SF[7] + P_[1][5]*SF[6] + P_[2][5]*SF[9] + P_[10][5]*SF[15] - P_[11][5]*SF[14] - (P_[12][5]*q0)/2);
+    nextP[4][8] = P_[4][8] + P_[0][8]*SF[5] + P_[1][8]*SF[3] - P_[3][8]*SF[4] + P_[2][8]*SPP[0] + P_[13][8]*SPP[3] + P_[14][8]*SPP[6] - P_[15][8]*SPP[9] + dt*(P_[4][5] + P_[0][5]*SF[5] + P_[1][5]*SF[3] - P_[3][5]*SF[4] + P_[2][5]*SPP[0] + P_[13][5]*SPP[3] + P_[14][5]*SPP[6] - P_[15][5]*SPP[9]);
+    nextP[5][8] = P_[5][8] + P_[0][8]*SF[4] + P_[2][8]*SF[3] + P_[3][8]*SF[5] - P_[1][8]*SPP[0] - P_[13][8]*SPP[8] + P_[14][8]*SPP[2] + P_[15][8]*SPP[5] + dt*(P_[5][5] + P_[0][5]*SF[4] + P_[2][5]*SF[3] + P_[3][5]*SF[5] - P_[1][5]*SPP[0] - P_[13][5]*SPP[8] + P_[14][5]*SPP[2] + P_[15][5]*SPP[5]);
+    nextP[6][8] = P_[6][8] + P_[1][8]*SF[4] - P_[2][8]*SF[5] + P_[3][8]*SF[3] + P_[0][8]*SPP[0] + P_[13][8]*SPP[4] - P_[14][8]*SPP[7] - P_[15][8]*SPP[1] + dt*(P_[6][5] + P_[1][5]*SF[4] - P_[2][5]*SF[5] + P_[3][5]*SF[3] + P_[0][5]*SPP[0] + P_[13][5]*SPP[4] - P_[14][5]*SPP[7] - P_[15][5]*SPP[1]);
+    nextP[7][8] = P_[7][8] + P_[4][8]*dt + dt*(P_[7][5] + P_[4][5]*dt);
+    nextP[8][8] = P_[8][8] + P_[5][8]*dt + dt*(P_[8][5] + P_[5][5]*dt);
+    nextP[0][9] = P_[0][9] + P_[1][9]*SF[9] + P_[2][9]*SF[11] + P_[3][9]*SF[10] + P_[10][9]*SF[14] + P_[11][9]*SF[15] + P_[12][9]*SPP[10] + dt*(P_[0][6] + P_[1][6]*SF[9] + P_[2][6]*SF[11] + P_[3][6]*SF[10] + P_[10][6]*SF[14] + P_[11][6]*SF[15] + P_[12][6]*SPP[10]);
+    nextP[1][9] = P_[1][9] + P_[0][9]*SF[8] + P_[2][9]*SF[7] + P_[3][9]*SF[11] - P_[12][9]*SF[15] + P_[11][9]*SPP[10] - (P_[10][9]*q0)/2 + dt*(P_[1][6] + P_[0][6]*SF[8] + P_[2][6]*SF[7] + P_[3][6]*SF[11] - P_[12][6]*SF[15] + P_[11][6]*SPP[10] - (P_[10][6]*q0)/2);
+    nextP[2][9] = P_[2][9] + P_[0][9]*SF[6] + P_[1][9]*SF[10] + P_[3][9]*SF[8] + P_[12][9]*SF[14] - P_[10][9]*SPP[10] - (P_[11][9]*q0)/2 + dt*(P_[2][6] + P_[0][6]*SF[6] + P_[1][6]*SF[10] + P_[3][6]*SF[8] + P_[12][6]*SF[14] - P_[10][6]*SPP[10] - (P_[11][6]*q0)/2);
+    nextP[3][9] = P_[3][9] + P_[0][9]*SF[7] + P_[1][9]*SF[6] + P_[2][9]*SF[9] + P_[10][9]*SF[15] - P_[11][9]*SF[14] - (P_[12][9]*q0)/2 + dt*(P_[3][6] + P_[0][6]*SF[7] + P_[1][6]*SF[6] + P_[2][6]*SF[9] + P_[10][6]*SF[15] - P_[11][6]*SF[14] - (P_[12][6]*q0)/2);
+    nextP[4][9] = P_[4][9] + P_[0][9]*SF[5] + P_[1][9]*SF[3] - P_[3][9]*SF[4] + P_[2][9]*SPP[0] + P_[13][9]*SPP[3] + P_[14][9]*SPP[6] - P_[15][9]*SPP[9] + dt*(P_[4][6] + P_[0][6]*SF[5] + P_[1][6]*SF[3] - P_[3][6]*SF[4] + P_[2][6]*SPP[0] + P_[13][6]*SPP[3] + P_[14][6]*SPP[6] - P_[15][6]*SPP[9]);
+    nextP[5][9] = P_[5][9] + P_[0][9]*SF[4] + P_[2][9]*SF[3] + P_[3][9]*SF[5] - P_[1][9]*SPP[0] - P_[13][9]*SPP[8] + P_[14][9]*SPP[2] + P_[15][9]*SPP[5] + dt*(P_[5][6] + P_[0][6]*SF[4] + P_[2][6]*SF[3] + P_[3][6]*SF[5] - P_[1][6]*SPP[0] - P_[13][6]*SPP[8] + P_[14][6]*SPP[2] + P_[15][6]*SPP[5]);
+    nextP[6][9] = P_[6][9] + P_[1][9]*SF[4] - P_[2][9]*SF[5] + P_[3][9]*SF[3] + P_[0][9]*SPP[0] + P_[13][9]*SPP[4] - P_[14][9]*SPP[7] - P_[15][9]*SPP[1] + dt*(P_[6][6] + P_[1][6]*SF[4] - P_[2][6]*SF[5] + P_[3][6]*SF[3] + P_[0][6]*SPP[0] + P_[13][6]*SPP[4] - P_[14][6]*SPP[7] - P_[15][6]*SPP[1]);
+    nextP[7][9] = P_[7][9] + P_[4][9]*dt + dt*(P_[7][6] + P_[4][6]*dt);
+    nextP[8][9] = P_[8][9] + P_[5][9]*dt + dt*(P_[8][6] + P_[5][6]*dt);
+    nextP[9][9] = P_[9][9] + P_[6][9]*dt + dt*(P_[9][6] + P_[6][6]*dt);
     nextP[0][10] = P_[0][10] + P_[1][10]*SF[9] + P_[2][10]*SF[11] + P_[3][10]*SF[10] + P_[10][10]*SF[14] + P_[11][10]*SF[15] + P_[12][10]*SPP[10];
     nextP[1][10] = P_[1][10] + P_[0][10]*SF[8] + P_[2][10]*SF[7] + P_[3][10]*SF[11] - P_[12][10]*SF[15] + P_[11][10]*SPP[10] - (P_[10][10]*q0)/2;
     nextP[2][10] = P_[2][10] + P_[0][10]*SF[6] + P_[1][10]*SF[10] + P_[3][10]*SF[8] + P_[12][10]*SF[14] - P_[10][10]*SPP[10] - (P_[11][10]*q0)/2;
@@ -544,9 +565,9 @@ namespace eskf {
     nextP[4][10] = P_[4][10] + P_[0][10]*SF[5] + P_[1][10]*SF[3] - P_[3][10]*SF[4] + P_[2][10]*SPP[0] + P_[13][10]*SPP[3] + P_[14][10]*SPP[6] - P_[15][10]*SPP[9];
     nextP[5][10] = P_[5][10] + P_[0][10]*SF[4] + P_[2][10]*SF[3] + P_[3][10]*SF[5] - P_[1][10]*SPP[0] - P_[13][10]*SPP[8] + P_[14][10]*SPP[2] + P_[15][10]*SPP[5];
     nextP[6][10] = P_[6][10] + P_[1][10]*SF[4] - P_[2][10]*SF[5] + P_[3][10]*SF[3] + P_[0][10]*SPP[0] + P_[13][10]*SPP[4] - P_[14][10]*SPP[7] - P_[15][10]*SPP[1];
-    nextP[7][10] = P_[7][10] + P_[4][10]*_dt_ekf_avg;
-    nextP[8][10] = P_[8][10] + P_[5][10]*_dt_ekf_avg;
-    nextP[9][10] = P_[9][10] + P_[6][10]*_dt_ekf_avg;
+    nextP[7][10] = P_[7][10] + P_[4][10]*dt;
+    nextP[8][10] = P_[8][10] + P_[5][10]*dt;
+    nextP[9][10] = P_[9][10] + P_[6][10]*dt;
     nextP[10][10] = P_[10][10];
     nextP[0][11] = P_[0][11] + P_[1][11]*SF[9] + P_[2][11]*SF[11] + P_[3][11]*SF[10] + P_[10][11]*SF[14] + P_[11][11]*SF[15] + P_[12][11]*SPP[10];
     nextP[1][11] = P_[1][11] + P_[0][11]*SF[8] + P_[2][11]*SF[7] + P_[3][11]*SF[11] - P_[12][11]*SF[15] + P_[11][11]*SPP[10] - (P_[10][11]*q0)/2;
@@ -555,9 +576,9 @@ namespace eskf {
     nextP[4][11] = P_[4][11] + P_[0][11]*SF[5] + P_[1][11]*SF[3] - P_[3][11]*SF[4] + P_[2][11]*SPP[0] + P_[13][11]*SPP[3] + P_[14][11]*SPP[6] - P_[15][11]*SPP[9];
     nextP[5][11] = P_[5][11] + P_[0][11]*SF[4] + P_[2][11]*SF[3] + P_[3][11]*SF[5] - P_[1][11]*SPP[0] - P_[13][11]*SPP[8] + P_[14][11]*SPP[2] + P_[15][11]*SPP[5];
     nextP[6][11] = P_[6][11] + P_[1][11]*SF[4] - P_[2][11]*SF[5] + P_[3][11]*SF[3] + P_[0][11]*SPP[0] + P_[13][11]*SPP[4] - P_[14][11]*SPP[7] - P_[15][11]*SPP[1];
-    nextP[7][11] = P_[7][11] + P_[4][11]*_dt_ekf_avg;
-    nextP[8][11] = P_[8][11] + P_[5][11]*_dt_ekf_avg;
-    nextP[9][11] = P_[9][11] + P_[6][11]*_dt_ekf_avg;
+    nextP[7][11] = P_[7][11] + P_[4][11]*dt;
+    nextP[8][11] = P_[8][11] + P_[5][11]*dt;
+    nextP[9][11] = P_[9][11] + P_[6][11]*dt;
     nextP[10][11] = P_[10][11];
     nextP[11][11] = P_[11][11];
     nextP[0][12] = P_[0][12] + P_[1][12]*SF[9] + P_[2][12]*SF[11] + P_[3][12]*SF[10] + P_[10][12]*SF[14] + P_[11][12]*SF[15] + P_[12][12]*SPP[10];
@@ -567,9 +588,9 @@ namespace eskf {
     nextP[4][12] = P_[4][12] + P_[0][12]*SF[5] + P_[1][12]*SF[3] - P_[3][12]*SF[4] + P_[2][12]*SPP[0] + P_[13][12]*SPP[3] + P_[14][12]*SPP[6] - P_[15][12]*SPP[9];
     nextP[5][12] = P_[5][12] + P_[0][12]*SF[4] + P_[2][12]*SF[3] + P_[3][12]*SF[5] - P_[1][12]*SPP[0] - P_[13][12]*SPP[8] + P_[14][12]*SPP[2] + P_[15][12]*SPP[5];
     nextP[6][12] = P_[6][12] + P_[1][12]*SF[4] - P_[2][12]*SF[5] + P_[3][12]*SF[3] + P_[0][12]*SPP[0] + P_[13][12]*SPP[4] - P_[14][12]*SPP[7] - P_[15][12]*SPP[1];
-    nextP[7][12] = P_[7][12] + P_[4][12]*_dt_ekf_avg;
-    nextP[8][12] = P_[8][12] + P_[5][12]*_dt_ekf_avg;
-    nextP[9][12] = P_[9][12] + P_[6][12]*_dt_ekf_avg;
+    nextP[7][12] = P_[7][12] + P_[4][12]*dt;
+    nextP[8][12] = P_[8][12] + P_[5][12]*dt;
+    nextP[9][12] = P_[9][12] + P_[6][12]*dt;
     nextP[10][12] = P_[10][12];
     nextP[11][12] = P_[11][12];
     nextP[12][12] = P_[12][12];
@@ -604,17 +625,18 @@ namespace eskf {
     for (unsigned i = 0; i < k_num_states_; i++) {
       P_[i][i] = nextP[i][i];
     }
-    */
-    debugFile << _imu_sample_delayed.delta_vel_dt << ",";
-    debugFile << px4body_w(0) << "," << px4body_w(1) << "," << px4body_w(2) << "," << px4body_a(0) << "," << px4body_a(1) << "," << px4body_a(2) << std::endl;
-    curr_time_sec += _imu_sample_delayed.delta_vel_dt;
     
-    // calculate an average filter update time
-	  scalar_t input = 0.5f * (_imu_sample_delayed.delta_vel_dt + _imu_sample_delayed.delta_ang_dt);
-
-	  // filter and limit input between -50% and +100% of nominal value
-	  input = constrain(input, 0.0005f * (scalar_t)(FILTER_UPDATE_PERIOD_MS), 0.002f * (scalar_t)(FILTER_UPDATE_PERIOD_MS));
-	  _dt_ekf_avg = 0.99f * _dt_ekf_avg + 0.01f * input;
+    fixCovarianceErrors();
+    
+    for (size_t i = 0; i < k_num_states_; ++i) {
+      debugFileCov << "[";
+      for (size_t j = 0; j < k_num_states_; ++j) {
+          debugFileCov << std::setw(10) << static_cast<double>(P_[i][j]);
+          debugFileCov << "\t";
+      }
+      debugFileCov << "]" << std::endl;
+    }
+    debugFileCov << std::endl << std::endl;
   }
   
   void ESKF::update(const ESKF::quat& q, scalar_t dt) {
@@ -870,7 +892,7 @@ namespace eskf {
 	  return dcm;
   }
   
-  void ESKF::fixCovarianceErrors(scalar_t dt) {
+  void ESKF::fixCovarianceErrors() {
     scalar_t P_lim[4] = {};
     P_lim[0] = 1.0f;		// quaternion max var
     P_lim[1] = 1e6f;		// velocity max var
@@ -1098,7 +1120,7 @@ namespace eskf {
     }
   }
 	
-  void ESKF::constrainStates(scalar_t dt) {
+  void ESKF::constrainStates() {
 	  state_.quat_nominal.w() = constrain(state_.quat_nominal.w(), -1.0, 1.0);
     state_.quat_nominal.x() = constrain(state_.quat_nominal.x(), -1.0, 1.0);
 	  state_.quat_nominal.y() = constrain(state_.quat_nominal.y(), -1.0, 1.0);
@@ -1113,11 +1135,11 @@ namespace eskf {
     }
 
     for (int i = 0; i < 3; i++) {
-      state_.gyro_bias(i) = constrain(state_.gyro_bias(i), -0.349066 * dt, 0.349066 * dt);
+      state_.gyro_bias(i) = constrain(state_.gyro_bias(i), -0.349066 * _dt_ekf_avg, 0.349066 * _dt_ekf_avg);
     }
 
     for (int i = 0; i < 3; i++) {
-      state_.accel_bias(i) = constrain(state_.accel_bias(i), -acc_bias_lim * dt, acc_bias_lim * dt);
+      state_.accel_bias(i) = constrain(state_.accel_bias(i), -acc_bias_lim * _dt_ekf_avg, acc_bias_lim * _dt_ekf_avg);
     }
   }
 } //  namespace eskf
