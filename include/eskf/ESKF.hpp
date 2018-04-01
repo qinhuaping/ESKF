@@ -173,6 +173,10 @@ namespace eskf {
     imuSample _imu_down_sampled{};  ///< down sampled imu data (sensor rate -> filter update rate)
     RingBuffer<imuSample> _imu_buffer;
 
+    quat _q_down_sampled;
+    float _imu_collection_time_adj{0.0f};	///< the amount of time the IMU collection needs to be advanced to meet the target set by FILTER_UPDATE_PERIOD_MS (sec)
+    imuSample _imu_sample_delayed{};	// captures the imu sample on the delayed time horizon
+
     scalar_t _dt_ekf_avg{0.001f * FILTER_UPDATE_PERIOD_MS}; ///< average update rate of the ekf
     
     bool collect_imu(imuSample& imu);
@@ -184,7 +188,7 @@ namespace eskf {
 
     // process noise
     scalar_t gyro_bias_p_noise{1.0e-3};		///< process noise for IMU rate gyro bias prediction (rad/sec**2)
-    scalar_t accel_bias_p_noise{6.0e-3};	///< process noise for IMU accelerometer bias prediction (m/sec**3)
+    scalar_t accel_bias_p_noise{3.0e-3};	///< process noise for IMU accelerometer bias prediction (m/sec**3)
 
     // input noise
     scalar_t gyro_noise{1.5e-2};		///< IMU angular rate noise used for covariance prediction (rad/sec)
@@ -208,9 +212,6 @@ namespace eskf {
     quat q_rb; ///< rotation from ROS body to PX4 body
     quat q_nb; ///< resulting rotation from ned to body
     
-    quat _q_down_sampled;
-    float _imu_collection_time_adj{0.0f};	///< the amount of time the IMU collection needs to be advanced to meet the target set by FILTER_UPDATE_PERIOD_MS (sec)
-    imuSample _imu_sample_delayed{};	// captures the imu sample on the delayed time horizon
   };
 }
 

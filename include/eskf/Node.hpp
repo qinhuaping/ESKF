@@ -5,7 +5,6 @@
 #include <sensor_msgs/Imu.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <message_filters/subscriber.h>
-
 #include <eskf/ESKF.hpp>
 
 namespace eskf {

@@ -119,9 +119,18 @@ namespace eskf {
 						  << "corrected_delta_vel_ef0_" << "," << "corrected_delta_vel_ef1_" << "," << "corrected_delta_vel_ef2_" << ","
 						  << "vel0_" << "," << "vel1_" << "," << "vel2_" << ","
 			        << "pos0_" << "," << "pos1_" << "," << "pos2_" << ","
+              << "_dt_ekf_avg_" << ","
+              << "delta_ang_dt_" << "," << "delta_vel_dt_" << "," 
               << "dt_" << ","
-              << "delta_ang_dt_" << "," << "delta_vel_dt_" << ","; 
-              << "d_ang_bias_sig_" << "," << "d_vel_bias_sig_" << std::endl;
+              << "d_ang_bias_sig_" << "," << "d_vel_bias_sig_" << ","
+              << "count_" << ","
+              << "daxVar_" << "," << "dayVar_" << "," << "dazVar_" << ","
+              << "dvxVar_" << "," << "dvyVar_" << "," << "dvzVar_" << ","
+              << "SF_0_" << "," << "SF_1_" << "," << "SF_2_" << "," << "SF_3_" << "," << "SF_4_" << "," << "SF_5_" << "," << "SF_6_" << "," << "SF_7_" << "," << "SF_8_" << "," << "SF_9_" << ","
+              << "SF_10_" << "," << "SF_11_" << "," << "SF_12_" << "," << "SF_13_" << "," << "SF_14_" << "," << "SF_15_" << "," << "SF_16_" << "," << "SF_17_" << "," << "SF_18_" << "," << "SF_19_" << "," << "SF_20_" << ","
+              << "SG_0_" << "," << "SG_1_" << "," << "SG_2_" << "," << "SG_3_" << "," << "SG_4_" << "," << "SG_5_" << "," << "SG_6_" << "," << "SG_7_" << ","
+              << "SQ_0_" << "," << "SQ_1_" << "," << "SQ_2_" << "," << "SQ_3_" << "," << "SQ_4_" << "," << "SQ_5_" << "," << "SQ_6_" << "," << "SQ_7_" << "," << "SQ_8_" << "," << "SQ_9_" << "," << "SQ_10_" << ","
+              << "SPP_0_" << "," << "SPP_1_" << "," << "SPP_2_" << "," << "SPP_3_" << "," << "SPP_4_" << "," << "SPP_5_" << "," << "SPP_6_" << "," << "SPP_7_" << "," << "SPP_8_" << "," << "SPP_9_" << "," << "SPP_10_" << std::endl;  
     //debugFile << "time_" << "," << "q_down_sampled0_" << "," << "q_down_sampled1_" << "," << "q_down_sampled2_" << "," << "q_down_sampled3_" << "," << std::endl;
     //debugFile << "time_" << "," << "_imu_down_sampled_delta_vel0_" << "," << "_imu_down_sampled_delta_vel1_" << "," << "_imu_down_sampled_delta_vel2_" << std::endl;
     /*
@@ -322,6 +331,10 @@ namespace eskf {
 		  printf("roll = %.7f\n", (double)roll);
       state_.quat_nominal = AngleAxis<scalar_t>(yaw, vec3::UnitZ()) * AngleAxis<scalar_t>(pitch, vec3::UnitY()) * AngleAxis<scalar_t>(roll, vec3::UnitX());
       printf("w = %.7f, x = %.7f, y = %.7f, z = %.7f\n", state_.quat_nominal.w(), state_.quat_nominal.x(), state_.quat_nominal.y(), state_.quat_nominal.z());
+      printf("gyro_bias_p_noise = %.7f\n", constrain(gyro_bias_p_noise, 0.0, 1.0));
+      printf("accel_bias_p_noise = %.7f\n", constrain(accel_bias_p_noise, 0.0, 1.0));
+      printf("gyro_noise = %.7f\n", constrain(gyro_noise, 0.0, 1.0));
+      printf("accel_noise = %.7f\n", constrain(accel_noise, 0.0, 1.0));
       return;
     }
     
@@ -369,7 +382,7 @@ namespace eskf {
     
     constrainStates();
         
-    curr_time_sec += dt;
+    curr_time_sec += (double)_imu_sample_delayed.delta_vel_dt;
     
     // calculate an average filter update time
 	  scalar_t input = 0.5f * (_imu_sample_delayed.delta_vel_dt + _imu_sample_delayed.delta_ang_dt);
@@ -377,7 +390,8 @@ namespace eskf {
 	  // filter and limit input between -50% and +100% of nominal value
 	  input = constrain(input, 0.0005f * (scalar_t)(FILTER_UPDATE_PERIOD_MS), 0.002f * (scalar_t)(FILTER_UPDATE_PERIOD_MS));
 	  _dt_ekf_avg = 0.99f * _dt_ekf_avg + 0.01f * input;
-    
+    debugFile << _dt_ekf_avg << ",";
+    debugFile << _imu_sample_delayed.delta_ang_dt << "," << _imu_sample_delayed.delta_vel_dt << ",";
     predictCovariance();
   }
   
@@ -418,7 +432,10 @@ namespace eskf {
     // convert rate of change of accelerometer bias (m/s**3) as specified by the parameter to an expected change in delta velocity (m/s) since the last update
     scalar_t d_vel_bias_sig = dt * dt * constrain(accel_bias_p_noise, 0.0, 1.0);
         
-    debugFile << d_ang_bias_sig << "," << d_vel_bias_sig << std::endl;
+    debugFile << d_ang_bias_sig << "," << d_vel_bias_sig << ",";
+    static int count = 0;
+    debugFile << count << ",";
+    count++;
         
     // Construct the process noise variance diagonal for those states with a stationary process model
     // These are kinematic states and their error growth is controlled separately by the IMU noise variances
@@ -439,7 +456,10 @@ namespace eskf {
     daxVar = dayVar = dazVar = sq(dt * gyro_noise); // gyro prediction variance TODO get variance from sensor
     accel_noise = constrain(accel_noise, 0.0, 1.0);
     dvxVar = dvyVar = dvzVar = sq(dt * accel_noise); //accel prediction variance TODO get variance from sensor
-
+    
+    debugFile << daxVar << "," << dayVar << "," << dazVar << ",";
+    debugFile << dvxVar << "," << dvyVar << "," << dvzVar << ",";
+    
     // intermediate calculations
     scalar_t SF[21];
     SF[0] = dvz - dvz_b;
@@ -463,7 +483,10 @@ namespace eskf {
     SF[18] = sq(q2);
     SF[19] = sq(q1);
     SF[20] = sq(q0);
-
+    
+    debugFile << SF[0] << "," << SF[1] << "," << SF[2] << "," << SF[3] << "," << SF[4] << "," << SF[5] << "," << SF[6] << "," << SF[7]<< "," << SF[8]<< "," << SF[9] << ","
+    << SF[10] << "," << SF[11] << "," << SF[12] << "," << SF[13] << "," << SF[14] << "," << SF[15] << "," << SF[16] << "," << SF[17]<< "," << SF[18]<< "," << SF[19] << "," << SF[20] << ",";
+      
     scalar_t SG[8];
     SG[0] = q0/2;
     SG[1] = sq(q3);
@@ -473,7 +496,9 @@ namespace eskf {
     SG[5] = 2*q2*q3;
     SG[6] = 2*q1*q3;
     SG[7] = 2*q1*q2;
-
+    
+    debugFile << SG[0] << "," << SG[1] << "," << SG[2] << "," << SG[3] << "," << SG[4] << "," << SG[5] << "," << SG[6] << "," << SG[7] << ",";
+        
     scalar_t SQ[11];
     SQ[0] = dvzVar*(SG[5] - 2*q0*q1)*(SG[1] - SG[2] - SG[3] + SG[4]) - dvyVar*(SG[5] + 2*q0*q1)*(SG[1] - SG[2] + SG[3] - SG[4]) + dvxVar*(SG[6] - 2*q0*q2)*(SG[7] + 2*q0*q3);
     SQ[1] = dvzVar*(SG[6] + 2*q0*q2)*(SG[1] - SG[2] - SG[3] + SG[4]) - dvxVar*(SG[6] - 2*q0*q2)*(SG[1] + SG[2] - SG[3] - SG[4]) + dvyVar*(SG[5] + 2*q0*q1)*(SG[7] - 2*q0*q3);
@@ -486,7 +511,9 @@ namespace eskf {
     SQ[8] = (dayVar*q2*q3)/4 - (daxVar*q1*SG[0])/2 - (dazVar*q2*q3)/4;
     SQ[9] = sq(SG[0]);
     SQ[10] = sq(q1);
-
+    
+    debugFile << SQ[0] << "," << SQ[1] << "," << SQ[2] << "," << SQ[3] << "," << SQ[4] << "," << SQ[5] << "," << SQ[6] << "," << SQ[7] << "," << SQ[8] << "," << SQ[9] << "," << SQ[10] << ",";
+    
     scalar_t SPP[11];
     SPP[0] = SF[12] + SF[13] - 2*q2*SF[2];
     SPP[1] = SF[17] - SF[18] - SF[19] + SF[20];
@@ -499,6 +526,8 @@ namespace eskf {
     SPP[8] = 2*q0*q3 + 2*q1*q2;
     SPP[9] = 2*q0*q2 + 2*q1*q3;
     SPP[10] = SF[16];
+    
+    debugFile << SPP[0] << "," << SPP[1] << "," << SPP[2] << "," << SPP[3] << "," << SPP[4] << "," << SPP[5] << "," << SPP[6] << "," << SPP[7] << "," << SPP[8] << "," << SPP[9] << "," << SPP[10] << std::endl;
     
     // covariance update
     // calculate variances and upper diagonal covariances for quaternion, velocity, position and gyro bias states
@@ -628,14 +657,15 @@ namespace eskf {
     
     fixCovarianceErrors();
     
+    debugFileCov << "[";
     for (size_t i = 0; i < k_num_states_; ++i) {
-      debugFileCov << "[";
       for (size_t j = 0; j < k_num_states_; ++j) {
           debugFileCov << std::setw(10) << static_cast<double>(P_[i][j]);
           debugFileCov << "\t";
       }
-      debugFileCov << "]" << std::endl;
+      debugFileCov << ";" << std::endl;
     }
+    debugFileCov << "]";
     debugFileCov << std::endl << std::endl;
   }
   

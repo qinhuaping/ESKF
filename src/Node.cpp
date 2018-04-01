@@ -7,7 +7,7 @@ namespace eskf {
   Node::Node(const ros::NodeHandle &nh, const ros::NodeHandle &pnh) : nh_(pnh), init_(false) {
     //  subscribe
     ROS_INFO("Subscribing to ~imu.");
-    subImu_ = nh_.subscribe<sensor_msgs::Imu>("imu", 100, boost::bind(&Node::inputCallback, this, _1));
+    subImu_ = nh_.subscribe<sensor_msgs::Imu>("imu", 1000, &Node::inputCallback, this, ros::TransportHints().tcpNoDelay(true));
     ROS_INFO("Subscribing to ~pose.");
     subPOSE_ = nh_.subscribe("pose", 1, &Node::measurementCallback, this);
     
