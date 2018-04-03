@@ -56,7 +56,8 @@ namespace eskf {
       const double delta = (poseMsg->header.stamp - prevStampPOSE_).toSec();
       // get measurements
       quat z_q = quat(poseMsg->pose.orientation.w, poseMsg->pose.orientation.x, poseMsg->pose.orientation.y, poseMsg->pose.orientation.z);
-      eskf_.update(z_q, delta);
+      vec3 z_p = vec3(poseMsg->pose.position.x, poseMsg->pose.position.y, poseMsg->pose.position.z);
+      eskf_.update(z_q, z_p, delta);
     }
     prevStampPOSE_ = poseMsg->header.stamp;
   }

@@ -184,7 +184,16 @@ namespace eskf {
 		  imuSample imu_sample_init = {};
 		  _imu_buffer.push(imu_sample_init);
 		}
+
+    const int _obs_buffer_length = 9;
+    _ext_vision_buffer.allocate(_obs_buffer_length);
+    for (int index = 0; index < _obs_buffer_length; index++) {
+      extVisionSample ext_vision_sample_init = {};
+		  _ext_vision_buffer.push(ext_vision_sample_init);
+    }
     
+    last_known_posNED_ = vec3(0, 0, 0);
+
     _dt_ekf_avg = 0.001f * (scalar_t)(FILTER_UPDATE_PERIOD_MS);
     
 		initialiseCovariance();
@@ -393,6 +402,7 @@ namespace eskf {
     debugFile << _dt_ekf_avg << ",";
     debugFile << _imu_sample_delayed.delta_ang_dt << "," << _imu_sample_delayed.delta_vel_dt << ",";
     predictCovariance();
+    fusePosHeight();
   }
   
   void ESKF::predictCovariance() {
@@ -669,11 +679,154 @@ namespace eskf {
     debugFileCov << std::endl << std::endl;
   }
   
-  void ESKF::update(const ESKF::quat& q, scalar_t dt) {
+  void ESKF::fusePosHeight() {
+    bool fuse_map[3] = {}; // map of booleans true when [PN,PE,PD] observations are available
+    bool innov_check_pass_map[3] = {}; // true when innovations consistency checks pass for [PN,PE,PD] observations
+    scalar_t R[3] = {}; // observation variances for [PN,PE,PD]
+    scalar_t gate_size[3] = {}; // innovation consistency check gate sizes for [PN,PE,PD] observations
+    scalar_t Kfusion[k_num_states_] = {}; // Kalman gain vector for any single observation - sequential fusion is used
+    
+    if (fuse_pos_) {
+      fuse_map[0] = fuse_map[1] = true;
+
+      if (ev_pos_) {
+        // calculate innovations
+        // use the absolute position
+        pos_innov_[0] = state_.pos(0) - ev_sample_delayed_.posNED(0);
+        pos_innov_[1] = state_.pos(1) - ev_sample_delayed_.posNED(1);
+        
+        // observation 1-STD error
+        R[0] = fmaxf(0.05f, 0.01f);
+
+        // innovation gate size
+        gate_size[0] = fmaxf(5.0f, 1.0f);
+      } else {
+        // No observations - use a static position to constrain drift
+        if (in_air_) {
+          R[0] = fmaxf(10.0f, 0.5f);
+        } else {
+          R[0] = 0.5f;
+        }
+        pos_innov_[0] = state_.pos(0) - last_known_posNED_(0);
+        pos_innov_[1] = state_.pos(1) - last_known_posNED_(1);
+
+        // glitch protection is not required so set gate to a large value
+        gate_size[0] = 100.0f;
+
+        pos_innov_[2] = state_.pos(2) - last_known_posNED_(2);
+        fuse_map[2] = true;
+        R[2] = 0.5f;
+        R[2] = R[2] * R[2];
+        // innovation gate size
+        gate_size[2] = 100.0f;
+      }
+
+      // convert North position noise to variance
+      R[0] = R[0] * R[0];
+
+      // copy North axis values to East axis
+      R[1] = R[0];
+      gate_size[1] = gate_size[0];
+    }
+
+    if (fuse_height_) {
+      fuse_map[2] = true;
+      // calculate the innovation assuming the external vision observaton is in local NED frame
+      pos_innov_[2] = state_.pos(2) - ev_sample_delayed_.posNED(2);
+      // observation variance - defined externally
+      R[2] = fmaxf(0.05f, 0.01f);
+      R[2] = R[2] * R[2];
+      // innovation gate size
+      gate_size[2] = fmaxf(5.0f, 1.0f);
+    }
+
+    // calculate innovation test ratios
+    for (unsigned obs_index = 0; obs_index < 3; obs_index++) {
+      if (fuse_map[obs_index]) {
+        // compute the innovation variance SK = HPH + R
+        unsigned state_index = obs_index + 7;	// we start with px and this is the 7. state
+        pos_innov_var_[obs_index] = P_[state_index][state_index] + R[obs_index];
+        // Compute the ratio of innovation to gate size
+        pos_test_ratio_[obs_index] = sq(pos_innov_[obs_index]) / (sq(gate_size[obs_index]) * pos_innov_var_[obs_index]);
+      }
+    }
+
+    // check position, velocity and height innovations
+    // treat 2D position and height as separate sensors
+    bool pos_check_pass = ((pos_test_ratio_[1] <= 1.0f) && (pos_test_ratio_[0] <= 1.0f));
+    innov_check_pass_map[1] = innov_check_pass_map[0] = pos_check_pass;
+    innov_check_pass_map[2] = (pos_test_ratio_[2] <= 1.0f);
+    
+    for (unsigned obs_index = 0; obs_index < 3; obs_index++) {
+      // skip fusion if not requested or checks have failed
+      if (!fuse_map[obs_index] || !innov_check_pass_map[obs_index]) {
+        continue;
+      }
+
+      unsigned state_index = obs_index + 7;	// we start with vx and this is the 4. state
+
+      // calculate kalman gain K = PHS, where S = 1/innovation variance
+      for (int row = 0; row < k_num_states_; row++) {
+        Kfusion[row] = P_[row][state_index] / pos_innov_var_[obs_index];
+      }
+
+      // update covarinace matrix via Pnew = (I - KH)P
+      float KHP[k_num_states_][k_num_states_];
+      for (unsigned row = 0; row < k_num_states_; row++) {
+        for (unsigned column = 0; column < k_num_states_; column++) {
+          KHP[row][column] = Kfusion[row] * P_[state_index][column];
+        }
+      }
+
+      // if the covariance correction will result in a negative variance, then
+      // the covariance marix is unhealthy and must be corrected
+      bool healthy = true;
+      for (int i = 0; i < k_num_states_; i++) {
+        if (P_[i][i] < KHP[i][i]) {
+          // zero rows and columns
+          zeroRows(P_,i,i);
+          zeroCols(P_,i,i);
+
+          //flag as unhealthy
+          healthy = false;
+        } 
+      }
+
+      // only apply covariance and state corrrections if healthy
+      if (healthy) {
+        // apply the covariance corrections
+        for (unsigned row = 0; row < k_num_states_; row++) {
+          for (unsigned column = 0; column < k_num_states_; column++) {
+            P_[row][column] = P_[row][column] - KHP[row][column];
+          }
+        }
+
+        // correct the covariance marix for gross errors
+        fixCovarianceErrors();
+
+        // apply the state corrections
+        fuse(Kfusion, pos_innov_[obs_index]);
+      }
+    }
+  }
+  
+  void ESKF::update(const ESKF::quat& q, const ESKF::vec3& p, scalar_t dt) {
+    /*
     // q here is rotation from enu to ros body
-    //q_nb = (q_rb.conjugate() * q.conjugate() * q_ne.conjugate()).conjugate();
-    //q_nb.normalize();
-    //state_.quat_nominal = q_nb;
+    quat q_nb = (q_rb.conjugate() * q.conjugate() * q_ne.conjugate()).conjugate();
+    q_nb.normalize();
+    vec3 pos_nb = q_ne.conjugate().toRotationMatrix() * p;
+    
+    extVisionSample ev_sample_new;
+    // calculate the system time-stamp for the mid point of the integration period
+    // copy required data
+    ev_sample_new.angErr = 0.05f;
+    ev_sample_new.posErr = 0.05f;
+    ev_sample_new.quatNED = q_nb;
+    ev_sample_new.posNED = pos_nb;
+     // push to buffer
+    _ext_vision_buffer.push(ev_sample_new);
+    */
   }
   
   /*

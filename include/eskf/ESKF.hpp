@@ -125,7 +125,7 @@ namespace eskf {
 
     void predict(const vec3& w, const vec3& a, scalar_t dt);
 
-    void update(const quat& q, scalar_t dt);
+    void update(const quat& q, const vec3& p, scalar_t dt);
     
     const quat& getQuat() const;
 
@@ -142,6 +142,7 @@ namespace eskf {
     void fixCovarianceErrors();
     void initialiseCovariance();
     void predictCovariance();
+    void fusePosHeight();
     //void updatePos(const vec3& p, scalar_t dt);
     //void updateYaw(const quat& q, scalar_t dt);
     mat3 quat_to_invrotmat(const quat &q);
@@ -168,7 +169,14 @@ namespace eskf {
       scalar_t  delta_ang_dt;	///< delta angle integration period (sec)
       scalar_t  delta_vel_dt;	///< delta velocity integration period (sec)
     };
-
+  
+    struct extVisionSample {
+	    vec3 posNED;	///< measured NED body position relative to the local origin (m)
+      quat quatNED;		///< measured quaternion orientation defining rotation from NED to body frame
+      float posErr;		///< 1-Sigma spherical position accuracy (m)
+      float angErr;		///< 1-Sigma angular error (rad)
+    };
+    
     imuSample _imu_sample_new{};		///< imu sample capturing the newest imu data
     imuSample _imu_down_sampled{};  ///< down sampled imu data (sensor rate -> filter update rate)
     RingBuffer<imuSample> _imu_buffer;
@@ -176,7 +184,9 @@ namespace eskf {
     quat _q_down_sampled;
     float _imu_collection_time_adj{0.0f};	///< the amount of time the IMU collection needs to be advanced to meet the target set by FILTER_UPDATE_PERIOD_MS (sec)
     imuSample _imu_sample_delayed{};	// captures the imu sample on the delayed time horizon
-
+    extVisionSample ev_sample_delayed_{}; 
+    RingBuffer<extVisionSample> _ext_vision_buffer;
+    
     scalar_t _dt_ekf_avg{0.001f * FILTER_UPDATE_PERIOD_MS}; ///< average update rate of the ekf
     
     bool collect_imu(imuSample& imu);
@@ -202,6 +212,9 @@ namespace eskf {
     scalar_t vel_noise{5.0e-1f};	///< minimum allowed observation noise for velocity fusion (m/sec)
 	  scalar_t pos_noise{0.5f};		///< minimum allowed observation noise for position fusion (m)
 	  scalar_t baro_noise{2.0f};			///< observation noise for barometric height fusion (m)
+    scalar_t pos_test_ratio_[3] {};  // position innovation consistency check ratios
+    scalar_t pos_innov_[3] {};	///< ROS position innovations: (m**2)
+	  scalar_t pos_innov_var_[3] {};	///< ROS position innovation variances: (m**2)
     
     scalar_t yaw_err{0.05f};
     scalar_t heading_innov_gate{2.6f};		///< heading fusion innovation consistency gate size (STD)
@@ -210,8 +223,12 @@ namespace eskf {
     
     quat q_ne; ///< rotation from NED to ENU
     quat q_rb; ///< rotation from ROS body to PX4 body
-    quat q_nb; ///< resulting rotation from ned to body
     
+    bool fuse_pos_ = true;
+	  bool fuse_height_ = false;
+    bool ev_pos_ = false;
+    bool in_air_ = false;
+    vec3 last_known_posNED_;
   };
 }
 
