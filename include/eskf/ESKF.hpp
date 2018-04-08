@@ -3,6 +3,7 @@
 
 #include <Eigen/Core>
 #include <Eigen/Dense>
+#include <ros/time.h>
 
 namespace eskf {
 
@@ -134,6 +135,7 @@ namespace eskf {
   private:
     
     void constrainStates();
+    bool initializeFilter();
     void initialiseQuatCovariances(const vec3& rot_vec_var);
 	  void zeroRows(scalar_t (&cov_mat)[k_num_states_][k_num_states_], uint8_t first, uint8_t last);
     void zeroCols(scalar_t (&cov_mat)[k_num_states_][k_num_states_], uint8_t first, uint8_t last);
@@ -179,6 +181,7 @@ namespace eskf {
     
     imuSample _imu_sample_new{};		///< imu sample capturing the newest imu data
     imuSample _imu_down_sampled{};  ///< down sampled imu data (sensor rate -> filter update rate)
+    vec3 _delVel_sum; ///< summed delta velocity (m/sec)
     RingBuffer<imuSample> _imu_buffer;
 
     quat _q_down_sampled;
@@ -190,6 +193,8 @@ namespace eskf {
     scalar_t _dt_ekf_avg{0.001f * FILTER_UPDATE_PERIOD_MS}; ///< average update rate of the ekf
     
     bool collect_imu(imuSample& imu);
+    bool imu_updated_;
+    bool filter_initialised_;
     
     scalar_t P_[k_num_states_][k_num_states_]; /// System covariance matrix
 

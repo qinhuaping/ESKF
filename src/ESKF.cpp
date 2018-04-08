@@ -119,26 +119,21 @@ namespace eskf {
 						  << "corrected_delta_vel_ef0_" << "," << "corrected_delta_vel_ef1_" << "," << "corrected_delta_vel_ef2_" << ","
 						  << "vel0_" << "," << "vel1_" << "," << "vel2_" << ","
 			        << "pos0_" << "," << "pos1_" << "," << "pos2_" << ","
-              << "_dt_ekf_avg_" << ","
-              << "delta_ang_dt_" << "," << "delta_vel_dt_" << "," 
+              << "dt_ekf_avg_" << ","
               << "dt_" << ","
               << "d_ang_bias_sig_" << "," << "d_vel_bias_sig_" << ","
-              << "count_" << ","
               << "daxVar_" << "," << "dayVar_" << "," << "dazVar_" << ","
               << "dvxVar_" << "," << "dvyVar_" << "," << "dvzVar_" << ","
               << "SF_0_" << "," << "SF_1_" << "," << "SF_2_" << "," << "SF_3_" << "," << "SF_4_" << "," << "SF_5_" << "," << "SF_6_" << "," << "SF_7_" << "," << "SF_8_" << "," << "SF_9_" << ","
               << "SF_10_" << "," << "SF_11_" << "," << "SF_12_" << "," << "SF_13_" << "," << "SF_14_" << "," << "SF_15_" << "," << "SF_16_" << "," << "SF_17_" << "," << "SF_18_" << "," << "SF_19_" << "," << "SF_20_" << ","
               << "SG_0_" << "," << "SG_1_" << "," << "SG_2_" << "," << "SG_3_" << "," << "SG_4_" << "," << "SG_5_" << "," << "SG_6_" << "," << "SG_7_" << ","
               << "SQ_0_" << "," << "SQ_1_" << "," << "SQ_2_" << "," << "SQ_3_" << "," << "SQ_4_" << "," << "SQ_5_" << "," << "SQ_6_" << "," << "SQ_7_" << "," << "SQ_8_" << "," << "SQ_9_" << "," << "SQ_10_" << ","
-              << "SPP_0_" << "," << "SPP_1_" << "," << "SPP_2_" << "," << "SPP_3_" << "," << "SPP_4_" << "," << "SPP_5_" << "," << "SPP_6_" << "," << "SPP_7_" << "," << "SPP_8_" << "," << "SPP_9_" << "," << "SPP_10_" << std::endl;  
-    //debugFile << "time_" << "," << "q_down_sampled0_" << "," << "q_down_sampled1_" << "," << "q_down_sampled2_" << "," << "q_down_sampled3_" << "," << std::endl;
-    //debugFile << "time_" << "," << "_imu_down_sampled_delta_vel0_" << "," << "_imu_down_sampled_delta_vel1_" << "," << "_imu_down_sampled_delta_vel2_" << std::endl;
-    /*
-    debugFile << "time_" << "," << "delta_R00_" << "," << "delta_R01_" << "," << "delta_R02_" << ","
-                                << "delta_R10_" << "," << "delta_R11_" << "," << "delta_R12_" << ","
-                                << "delta_R20_" << "," << "delta_R21_" << "," << "delta_R22_" << std::endl;
-    */
-    //debugFile << "time_" << "," << "_imu_delta_ang0_" << "," << "_imu_delta_ang1_" << "," << "_imu_delta_ang2_" << "," << "_imu_delta_vel0_" << "," << "_imu_delta_vel1_" << "," << "_imu_delta_vel2_" << std::endl;
+              << "SPP_0_" << "," << "SPP_1_" << "," << "SPP_2_" << "," << "SPP_3_" << "," << "SPP_4_" << "," << "SPP_5_" << "," << "SPP_6_" << "," << "SPP_7_" << "," << "SPP_8_" << "," << "SPP_9_" << "," << "SPP_10_" << ","
+              << "R_0_" << "," << "R_1_" << "," << "R_2_" << ","
+              << "gate_size_0_" << "," << "gate_size_1_" << "," << "gate_size_2_" << ","
+              << "pos_innov_0_" << "," << "pos_innov_1_" << "," << "pos_innov_2_" << ","
+              << "last_known_posNED_0_" << "," << "last_known_posNED_1_" << "," << "last_known_posNED_2_" << ","
+              << "pos_innov_var_0_" << "," << "pos_innov_var_1_" << "," << "pos_innov_var_2_" << std::endl;  
     // zeros state_
     state_.quat_nominal = quat(1, 0, 0, 0);
     state_.vel = vec3(0, 0, 0);
@@ -196,6 +191,9 @@ namespace eskf {
 
     _dt_ekf_avg = 0.001f * (scalar_t)(FILTER_UPDATE_PERIOD_MS);
     
+    filter_initialised_ = false;
+    imu_updated_ = false;
+    
 		initialiseCovariance();
   }
   
@@ -228,6 +226,32 @@ namespace eskf {
 	  P_[15][15] = P_[13][13];
   }
   
+  bool ESKF::initializeFilter() {
+    scalar_t pitch = 0.0;
+		scalar_t roll = 0.0;
+    scalar_t yaw = 0.0;
+    imuSample imu_init = _imu_buffer.get_newest();
+    _delVel_sum += imu_init.delta_vel;
+    printf("_delVel_sum: x = %.7f, y = %.7f, z = %.7f\n", _delVel_sum(0), _delVel_sum(1), _delVel_sum(2));
+    if (_delVel_sum.norm() > 0.001) {
+      _delVel_sum.normalize();
+      pitch = asin(_delVel_sum(0));
+      roll = atan2(-_delVel_sum(1), -_delVel_sum(2));
+    } else {
+      return false;
+    }
+    // calculate initial tilt alignment
+    printf("pitch = %.7f\n", (double)pitch);
+		printf("roll = %.7f\n", (double)roll);
+    state_.quat_nominal = AngleAxis<scalar_t>(yaw, vec3::UnitZ()) * AngleAxis<scalar_t>(pitch, vec3::UnitY()) * AngleAxis<scalar_t>(roll, vec3::UnitX());
+    printf("w = %.7f, x = %.7f, y = %.7f, z = %.7f\n", state_.quat_nominal.w(), state_.quat_nominal.x(), state_.quat_nominal.y(), state_.quat_nominal.z());
+    printf("gyro_bias_p_noise = %.7f\n", constrain(gyro_bias_p_noise, 0.0, 1.0));
+    printf("accel_bias_p_noise = %.7f\n", constrain(accel_bias_p_noise, 0.0, 1.0));
+    printf("gyro_noise = %.7f\n", constrain(gyro_noise, 0.0, 1.0));
+    printf("accel_noise = %.7f\n", constrain(accel_noise, 0.0, 1.0));
+    return true;    
+  }
+  
   bool ESKF::collect_imu(imuSample &imu) {
     // accumulate and downsample IMU data across a period FILTER_UPDATE_PERIOD_MS long
 
@@ -249,15 +273,8 @@ namespace eskf {
     _q_down_sampled = _q_down_sampled * delta_q;
     _q_down_sampled.normalize();
     
-    //debugFile << curr_time_sec << "," << _q_down_sampled.w() << "," << _q_down_sampled.x() << "," << _q_down_sampled.y() << "," << _q_down_sampled.z() << std::endl;
-    
     // rotate the accumulated delta velocity data forward each time so it is always in the updated rotation frame
     mat3 delta_R = quat2dcm(delta_q.inverse());
-    /*
-    debugFile << curr_time_sec << "," << delta_R(0,0) << "," << delta_R(0,1) << "," << delta_R(0,2) << ","
-			                                << delta_R(1,0) << "," << delta_R(1,1) << "," << delta_R(1,2) << ","
-			                                << delta_R(2,0) << "," << delta_R(2,1) << "," << delta_R(2,2) << std::endl;
-    */
     _imu_down_sampled.delta_vel = delta_R * _imu_down_sampled.delta_vel;
         
 	  // accumulate the most recent delta velocity data at the updated rotation frame
@@ -279,8 +296,6 @@ namespace eskf {
       imu.delta_vel     = _imu_down_sampled.delta_vel;
       imu.delta_ang_dt  = _imu_down_sampled.delta_ang_dt;
       imu.delta_vel_dt  = _imu_down_sampled.delta_vel_dt;
-      
-      //debugFile << curr_time_sec << "," << imu.delta_ang(0) << "," << imu.delta_ang(1) << "," << imu.delta_ang(2) << "," << imu.delta_vel(0) << "," << imu.delta_vel(1) << "," << imu.delta_vel(2) << std::endl;
       
       _imu_down_sampled.delta_ang.setZero();
       _imu_down_sampled.delta_vel.setZero();
@@ -311,41 +326,63 @@ namespace eskf {
     imu_sample_new.delta_ang_dt = dt;
     imu_sample_new.delta_vel_dt = dt;
     
+    /*
+    {
+      scalar_t now = ros::Time::now().toSec();
+      static scalar_t prev = now;
+      scalar_t dt_sec = (now - prev);
+      static scalar_t t = 0.0f;
+      static int counter = 0;
+      if(t>= 1.0f) {
+        t = 0;
+        printf("HZ_PREDICT_BEFORE = %d\n", counter);
+        counter = 0;
+      } else {
+        t += dt_sec;
+        counter++;
+      }
+      prev = now;
+    }
+    */
+    
     if(collect_imu(imu_sample_new)) {
       _imu_buffer.push(imu_sample_new);
+      imu_updated_ = true;
        // get the oldest data from the buffer
 		  _imu_sample_delayed = _imu_buffer.get_oldest();
     } else {
+      imu_updated_ = false;
       return;
     }
     
-    static bool isFirstTime = true;
-    if(isFirstTime) {
-      isFirstTime = false;
-      scalar_t pitch = 0.0;
-		  scalar_t roll = 0.0;
-      scalar_t yaw = 0.0;
-      imuSample imu_init = _imu_buffer.get_newest();
-      vec3 _delVel_sum = imu_init.delta_vel;
-      printf("_delVel_sum: x = %.7f, y = %.7f, z = %.7f\n", _delVel_sum(0), _delVel_sum(1), _delVel_sum(2));
-      if (_delVel_sum.norm() > 0.001) {
-        _delVel_sum.normalize();
-        pitch = asin(_delVel_sum(0));
-        roll = atan2(-_delVel_sum(1), -_delVel_sum(2));
-      } else {
+    if (!filter_initialised_) {
+      filter_initialised_ = initializeFilter();
+
+      if (!filter_initialised_) {
         return;
       }
-      // calculate initial tilt alignment
-      printf("pitch = %.7f\n", (double)pitch);
-		  printf("roll = %.7f\n", (double)roll);
-      state_.quat_nominal = AngleAxis<scalar_t>(yaw, vec3::UnitZ()) * AngleAxis<scalar_t>(pitch, vec3::UnitY()) * AngleAxis<scalar_t>(roll, vec3::UnitX());
-      printf("w = %.7f, x = %.7f, y = %.7f, z = %.7f\n", state_.quat_nominal.w(), state_.quat_nominal.x(), state_.quat_nominal.y(), state_.quat_nominal.z());
-      printf("gyro_bias_p_noise = %.7f\n", constrain(gyro_bias_p_noise, 0.0, 1.0));
-      printf("accel_bias_p_noise = %.7f\n", constrain(accel_bias_p_noise, 0.0, 1.0));
-      printf("gyro_noise = %.7f\n", constrain(gyro_noise, 0.0, 1.0));
-      printf("accel_noise = %.7f\n", constrain(accel_noise, 0.0, 1.0));
-      return;
     }
+    
+    if(!imu_updated_) return;
+    
+    /*
+    {
+      scalar_t now = ros::Time::now().toSec();
+      static scalar_t prev = now;
+      scalar_t dt_sec = (now - prev);
+      static scalar_t t = 0.0f;
+      static int counter = 0;
+      if(t>= 1.0f) {
+        t = 0;
+        printf("HZ_PREDICT_AFTER = %d\n", counter);
+        counter = 0;
+      } else {
+        t += dt_sec;
+        counter++;
+      }
+      prev = now;
+    }
+    */
     
     debugFile << curr_time_sec << ",";
     debugFile << _imu_sample_delayed.delta_ang(0) << "," << _imu_sample_delayed.delta_ang(1) << "," << _imu_sample_delayed.delta_ang(2) << ",";
@@ -400,7 +437,6 @@ namespace eskf {
 	  input = constrain(input, 0.0005f * (scalar_t)(FILTER_UPDATE_PERIOD_MS), 0.002f * (scalar_t)(FILTER_UPDATE_PERIOD_MS));
 	  _dt_ekf_avg = 0.99f * _dt_ekf_avg + 0.01f * input;
     debugFile << _dt_ekf_avg << ",";
-    debugFile << _imu_sample_delayed.delta_ang_dt << "," << _imu_sample_delayed.delta_vel_dt << ",";
     predictCovariance();
     fusePosHeight();
   }
@@ -443,10 +479,7 @@ namespace eskf {
     scalar_t d_vel_bias_sig = dt * dt * constrain(accel_bias_p_noise, 0.0, 1.0);
         
     debugFile << d_ang_bias_sig << "," << d_vel_bias_sig << ",";
-    static int count = 0;
-    debugFile << count << ",";
-    count++;
-        
+            
     // Construct the process noise variance diagonal for those states with a stationary process model
     // These are kinematic states and their error growth is controlled separately by the IMU noise variances
     for (unsigned i = 0; i <= 9; i++) {
@@ -537,7 +570,7 @@ namespace eskf {
     SPP[9] = 2*q0*q2 + 2*q1*q3;
     SPP[10] = SF[16];
     
-    debugFile << SPP[0] << "," << SPP[1] << "," << SPP[2] << "," << SPP[3] << "," << SPP[4] << "," << SPP[5] << "," << SPP[6] << "," << SPP[7] << "," << SPP[8] << "," << SPP[9] << "," << SPP[10] << std::endl;
+    debugFile << SPP[0] << "," << SPP[1] << "," << SPP[2] << "," << SPP[3] << "," << SPP[4] << "," << SPP[5] << "," << SPP[6] << "," << SPP[7] << "," << SPP[8] << "," << SPP[9] << "," << SPP[10] << ",";
     
     // covariance update
     // calculate variances and upper diagonal covariances for quaternion, velocity, position and gyro bias states
@@ -739,7 +772,12 @@ namespace eskf {
       // innovation gate size
       gate_size[2] = fmaxf(5.0f, 1.0f);
     }
-
+    
+    debugFile << R[0] << "," << R[1] << "," << R[2] << ","; 
+    debugFile << gate_size[0] << "," << gate_size[1] << "," << gate_size[2] << ",";
+    debugFile << pos_innov_[0] << "," << pos_innov_[1] << "," << pos_innov_[2] << ",";
+    debugFile << last_known_posNED_(0) << "," << last_known_posNED_(1) << "," << last_known_posNED_(2) << ",";
+        
     // calculate innovation test ratios
     for (unsigned obs_index = 0; obs_index < 3; obs_index++) {
       if (fuse_map[obs_index]) {
@@ -750,7 +788,9 @@ namespace eskf {
         pos_test_ratio_[obs_index] = sq(pos_innov_[obs_index]) / (sq(gate_size[obs_index]) * pos_innov_var_[obs_index]);
       }
     }
-
+    
+    debugFile << pos_innov_var_[0] << "," << pos_innov_var_[1] << "," << pos_innov_var_[2] << std::endl;
+    
     // check position, velocity and height innovations
     // treat 2D position and height as separate sensors
     bool pos_check_pass = ((pos_test_ratio_[1] <= 1.0f) && (pos_test_ratio_[0] <= 1.0f));
@@ -763,11 +803,11 @@ namespace eskf {
         continue;
       }
 
-      unsigned state_index = obs_index + 7;	// we start with vx and this is the 4. state
+      unsigned state_index = obs_index + 7;	// we start with px and this is the 7. state
 
       // calculate kalman gain K = PHS, where S = 1/innovation variance
       for (int row = 0; row < k_num_states_; row++) {
-        Kfusion[row] = P_[row][state_index] / pos_innov_var_[obs_index];
+        Kfusion[row] = 0;//P_[row][state_index] / pos_innov_var_[obs_index];
       }
 
       // update covarinace matrix via Pnew = (I - KH)P
@@ -789,9 +829,10 @@ namespace eskf {
 
           //flag as unhealthy
           healthy = false;
+          printf("healthy = %d\n", healthy);
         } 
       }
-
+      
       // only apply covariance and state corrrections if healthy
       if (healthy) {
         // apply the covariance corrections
@@ -805,7 +846,7 @@ namespace eskf {
         fixCovarianceErrors();
 
         // apply the state corrections
-        fuse(Kfusion, pos_innov_[obs_index]);
+        //fuse(Kfusion, pos_innov_[obs_index]);
       }
     }
   }
