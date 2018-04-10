@@ -115,7 +115,7 @@ namespace eskf {
   class ESKF {
   public:
     static constexpr int k_num_states_ = 16;
-	  typedef double scalar_t;
+	  typedef float scalar_t;
     typedef Eigen::Matrix<scalar_t, 3, 1> vec3; /// Vector in R3
     typedef Eigen::Matrix<scalar_t, k_num_states_, 1> vec7; /// Vector in R3
     typedef Eigen::Matrix<scalar_t, 3, 3> mat3; /// Matrix in R3
@@ -210,16 +210,16 @@ namespace eskf {
     scalar_t accel_noise{3.5e-1};		///< IMU acceleration noise use for covariance prediction (m/sec**2)
     
 	  // initialization errors
-	  scalar_t switch_on_gyro_bias{0.1f};		///< 1-sigma gyro bias uncertainty at switch on (rad/sec)
+	  scalar_t switch_on_gyro_bias{0.01f};		///< 1-sigma gyro bias uncertainty at switch on (rad/sec)
 	  scalar_t switch_on_accel_bias{0.2f};	///< 1-sigma accelerometer bias uncertainty at switch on (m/sec**2)
-	  scalar_t initial_tilt_err{0.1f};		///< 1-sigma tilt error after initial alignment using gravity vector (rad)
+	  scalar_t initial_tilt_err{0.01f};		///< 1-sigma tilt error after initial alignment using gravity vector (rad)
     
-    scalar_t vel_noise{5.0e-1f};	///< minimum allowed observation noise for velocity fusion (m/sec)
+    scalar_t vel_noise{0.5f};	///< minimum allowed observation noise for velocity fusion (m/sec)
 	  scalar_t pos_noise{0.5f};		///< minimum allowed observation noise for position fusion (m)
 	  scalar_t baro_noise{2.0f};			///< observation noise for barometric height fusion (m)
-    scalar_t pos_test_ratio_[3] {};  // position innovation consistency check ratios
-    scalar_t pos_innov_[3] {};	///< ROS position innovations: (m**2)
-	  scalar_t pos_innov_var_[3] {};	///< ROS position innovation variances: (m**2)
+    scalar_t vel_pos_test_ratio_[6] {};  // velocity and position innovation consistency check ratios
+    scalar_t vel_pos_innov_[6] {};	///< ROS velocity and position innovations: (m**2)
+	  scalar_t vel_pos_innov_var_[6] {};	///< ROS velocity and position innovation variances: (m**2)
     
     scalar_t yaw_err{0.05f};
     scalar_t heading_innov_gate{2.6f};		///< heading fusion innovation consistency gate size (STD)

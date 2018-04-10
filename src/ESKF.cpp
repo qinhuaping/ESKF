@@ -14,6 +14,7 @@ using namespace Eigen;
 namespace eskf {
   
   std::ofstream debugFile("/home/elia/Documents/eskf.csv");
+  std::ofstream debugFile2("/home/elia/Documents/eskfimu.csv");
   std::ofstream debugFileCov("/home/elia/Documents/eskfcov.csv");
   static double curr_time_sec = 0.0; 
   
@@ -133,7 +134,10 @@ namespace eskf {
               << "gate_size_0_" << "," << "gate_size_1_" << "," << "gate_size_2_" << ","
               << "pos_innov_0_" << "," << "pos_innov_1_" << "," << "pos_innov_2_" << ","
               << "last_known_posNED_0_" << "," << "last_known_posNED_1_" << "," << "last_known_posNED_2_" << ","
-              << "pos_innov_var_0_" << "," << "pos_innov_var_1_" << "," << "pos_innov_var_2_" << std::endl;  
+              << "pos_innov_var_0_" << "," << "pos_innov_var_1_" << "," << "pos_innov_var_2_" << ","
+              << "pos_test_ratio_0_" << "," << "pos_test_ratio_1_" << "," << "pos_test_ratio_2_" << std::endl;  
+    debugFile2 << "time_" << "," << "q_down_sampled_0_" << "," << "q_down_sampled_1_" << "," << "q_down_sampled_2_" << "," << "q_down_sampled_3_" << ",";
+    debugFile2 << "delta_vel_0_" << "," << "delta_vel_1_" << "," << "delta_vel_2_" << std::endl;
     // zeros state_
     state_.quat_nominal = quat(1, 0, 0, 0);
     state_.vel = vec3(0, 0, 0);
@@ -188,17 +192,26 @@ namespace eskf {
     }
     
     last_known_posNED_ = vec3(0, 0, 0);
-
+    _delVel_sum = vec3(0, 0, 0);
+    
     _dt_ekf_avg = 0.001f * (scalar_t)(FILTER_UPDATE_PERIOD_MS);
     
     filter_initialised_ = false;
     imu_updated_ = false;
-    
-		initialiseCovariance();
   }
   
   void ESKF::initialiseCovariance() {
-     // define the initial angle uncertainty as variances for a rotation vector
+    // define the initial angle uncertainty as variances for a rotation vector
+    
+    for (unsigned i = 0; i < k_num_states_; i++) {
+		  for (unsigned j = 0; j < k_num_states_; j++) {
+			  P_[i][j] = 0.0f;
+		  }
+	  }
+
+    // calculate average prediction time step in sec
+    float dt = 0.001f * (float)FILTER_UPDATE_PERIOD_MS;
+        
 	  vec3 rot_vec_var;
 	  rot_vec_var(2) = rot_vec_var(1) = rot_vec_var(0) = sq(initial_tilt_err);
 
@@ -216,14 +229,21 @@ namespace eskf {
 	  P_[9][9] = sq(fmaxf(baro_noise, 0.01f));
 
 	  // gyro bias
-	  P_[10][10] = sq(switch_on_gyro_bias * _dt_ekf_avg);
+	  P_[10][10] = sq(switch_on_gyro_bias * dt);
 	  P_[11][11] = P_[10][10];
 	  P_[12][12] = P_[10][10];
-	  
-	  //accel bias
-	  P_[13][13] = sq(switch_on_accel_bias * _dt_ekf_avg);
-	  P_[14][14] = P_[13][13];
-	  P_[15][15] = P_[13][13];
+	      
+    debugFileCov << "P0" << std::endl;
+    debugFileCov << "[";
+    for (size_t i = 0; i < k_num_states_; ++i) {
+      for (size_t j = 0; j < k_num_states_; ++j) {
+          debugFileCov << std::setw(10) << static_cast<double>(P_[i][j]);
+          debugFileCov << "\t";
+      }
+      debugFileCov << ";" << std::endl;
+    }
+    debugFileCov << "]";
+    debugFileCov << std::endl << std::endl;
   }
   
   bool ESKF::initializeFilter() {
@@ -245,10 +265,11 @@ namespace eskf {
 		printf("roll = %.7f\n", (double)roll);
     state_.quat_nominal = AngleAxis<scalar_t>(yaw, vec3::UnitZ()) * AngleAxis<scalar_t>(pitch, vec3::UnitY()) * AngleAxis<scalar_t>(roll, vec3::UnitX());
     printf("w = %.7f, x = %.7f, y = %.7f, z = %.7f\n", state_.quat_nominal.w(), state_.quat_nominal.x(), state_.quat_nominal.y(), state_.quat_nominal.z());
-    printf("gyro_bias_p_noise = %.7f\n", constrain(gyro_bias_p_noise, 0.0, 1.0));
-    printf("accel_bias_p_noise = %.7f\n", constrain(accel_bias_p_noise, 0.0, 1.0));
-    printf("gyro_noise = %.7f\n", constrain(gyro_noise, 0.0, 1.0));
-    printf("accel_noise = %.7f\n", constrain(accel_noise, 0.0, 1.0));
+    printf("gyro_bias_p_noise = %.7f\n", constrain(gyro_bias_p_noise, 0.0f, 1.0f));
+    printf("accel_bias_p_noise = %.7f\n", constrain(accel_bias_p_noise, 0.0f, 1.0f));
+    printf("gyro_noise = %.7f\n", constrain(gyro_noise, 0.0f, 1.0f));
+    printf("accel_noise = %.7f\n", constrain(accel_noise, 0.0f, 1.0f));
+    initialiseCovariance();
     return true;    
   }
   
@@ -273,10 +294,14 @@ namespace eskf {
     _q_down_sampled = _q_down_sampled * delta_q;
     _q_down_sampled.normalize();
     
+    //debugFile2 << curr_time_sec << "," << _q_down_sampled.w() << "," << _q_down_sampled.x() << "," << _q_down_sampled.y() << "," << _q_down_sampled.z() << ",";
+    
     // rotate the accumulated delta velocity data forward each time so it is always in the updated rotation frame
     mat3 delta_R = quat2dcm(delta_q.inverse());
     _imu_down_sampled.delta_vel = delta_R * _imu_down_sampled.delta_vel;
-        
+    
+    //debugFile2 << _imu_down_sampled.delta_vel(0) << "," << _imu_down_sampled.delta_vel(1) << "," << _imu_down_sampled.delta_vel(2) << std::endl;
+    
 	  // accumulate the most recent delta velocity data at the updated rotation frame
 	  // assume effective sample time is halfway between the previous and current rotation frame
 	  _imu_down_sampled.delta_vel += (_imu_sample_new.delta_vel + delta_R * _imu_sample_new.delta_vel) * 0.5f;
@@ -284,7 +309,7 @@ namespace eskf {
     // if the target time delta between filter prediction steps has been exceeded
     // write the accumulated IMU data to the ring buffer
     float target_dt = (float)(FILTER_UPDATE_PERIOD_MS) / 1000;
-
+    
     if (_imu_down_sampled.delta_ang_dt >= target_dt - _imu_collection_time_adj) {
 
       // accumulate the amount of time to advance the IMU collection time so that we meet the
@@ -296,6 +321,8 @@ namespace eskf {
       imu.delta_vel     = _imu_down_sampled.delta_vel;
       imu.delta_ang_dt  = _imu_down_sampled.delta_ang_dt;
       imu.delta_vel_dt  = _imu_down_sampled.delta_vel_dt;
+      
+      //curr_time_sec += _imu_down_sampled.delta_ang_dt;
       
       _imu_down_sampled.delta_ang.setZero();
       _imu_down_sampled.delta_vel.setZero();
@@ -473,10 +500,10 @@ namespace eskf {
     debugFile << dt << ",";
     
     // convert rate of change of rate gyro bias (rad/s**2) as specified by the parameter to an expected change in delta angle (rad) since the last update
-    scalar_t d_ang_bias_sig = dt * dt * constrain(gyro_bias_p_noise, 0.0, 1.0);
+    scalar_t d_ang_bias_sig = dt * dt * constrain(gyro_bias_p_noise, 0.0f, 1.0f);
 
     // convert rate of change of accelerometer bias (m/s**3) as specified by the parameter to an expected change in delta velocity (m/s) since the last update
-    scalar_t d_vel_bias_sig = dt * dt * constrain(accel_bias_p_noise, 0.0, 1.0);
+    scalar_t d_vel_bias_sig = dt * dt * constrain(accel_bias_p_noise, 0.0f, 1.0f);
         
     debugFile << d_ang_bias_sig << "," << d_vel_bias_sig << ",";
             
@@ -495,9 +522,9 @@ namespace eskf {
     // inputs to the system are 3 delta angles and 3 delta velocities
     scalar_t daxVar, dayVar, dazVar;
     scalar_t dvxVar, dvyVar, dvzVar;
-    gyro_noise = constrain(gyro_noise, 0.0, 1.0);
+    gyro_noise = constrain(gyro_noise, 0.0f, 1.0f);
     daxVar = dayVar = dazVar = sq(dt * gyro_noise); // gyro prediction variance TODO get variance from sensor
-    accel_noise = constrain(accel_noise, 0.0, 1.0);
+    accel_noise = constrain(accel_noise, 0.0f, 1.0f);
     dvxVar = dvyVar = dvzVar = sq(dt * accel_noise); //accel prediction variance TODO get variance from sensor
     
     debugFile << daxVar << "," << dayVar << "," << dazVar << ",";
@@ -700,6 +727,8 @@ namespace eskf {
     
     fixCovarianceErrors();
     
+    static int count = 0;
+    debugFileCov << count << std::endl;
     debugFileCov << "[";
     for (size_t i = 0; i < k_num_states_; ++i) {
       for (size_t j = 0; j < k_num_states_; ++j) {
@@ -710,104 +739,106 @@ namespace eskf {
     }
     debugFileCov << "]";
     debugFileCov << std::endl << std::endl;
+    count++;
   }
   
   void ESKF::fusePosHeight() {
-    bool fuse_map[3] = {}; // map of booleans true when [PN,PE,PD] observations are available
-    bool innov_check_pass_map[3] = {}; // true when innovations consistency checks pass for [PN,PE,PD] observations
-    scalar_t R[3] = {}; // observation variances for [PN,PE,PD]
-    scalar_t gate_size[3] = {}; // innovation consistency check gate sizes for [PN,PE,PD] observations
+    bool fuse_map[6] = {}; // map of booleans true when [VN,VE,VD,PN,PE,PD] observations are available
+    bool innov_check_pass_map[6] = {}; // true when innovations consistency checks pass for [PN,PE,PD] observations
+    scalar_t R[6] = {}; // observation variances for [VN,VE,VD,PN,PE,PD]
+    scalar_t gate_size[6] = {}; // innovation consistency check gate sizes for [VN,VE,VD,PN,PE,PD] observations
     scalar_t Kfusion[k_num_states_] = {}; // Kalman gain vector for any single observation - sequential fusion is used
     
     if (fuse_pos_) {
-      fuse_map[0] = fuse_map[1] = true;
+      fuse_map[3] = fuse_map[4] = true;
 
       if (ev_pos_) {
         // calculate innovations
         // use the absolute position
-        pos_innov_[0] = state_.pos(0) - ev_sample_delayed_.posNED(0);
-        pos_innov_[1] = state_.pos(1) - ev_sample_delayed_.posNED(1);
+        vel_pos_innov_[3] = state_.pos(0) - ev_sample_delayed_.posNED(0);
+        vel_pos_innov_[4] = state_.pos(1) - ev_sample_delayed_.posNED(1);
         
         // observation 1-STD error
-        R[0] = fmaxf(0.05f, 0.01f);
+        R[3] = fmaxf(0.05f, 0.01f);
 
         // innovation gate size
-        gate_size[0] = fmaxf(5.0f, 1.0f);
+        gate_size[3] = fmaxf(5.0f, 1.0f);
       } else {
         // No observations - use a static position to constrain drift
         if (in_air_) {
-          R[0] = fmaxf(10.0f, 0.5f);
+          R[3] = fmaxf(10.0f, 0.5f);
         } else {
-          R[0] = 0.5f;
+          R[3] = 0.5f;
         }
-        pos_innov_[0] = state_.pos(0) - last_known_posNED_(0);
-        pos_innov_[1] = state_.pos(1) - last_known_posNED_(1);
+        vel_pos_innov_[3] = state_.pos(0) - last_known_posNED_(0);
+        vel_pos_innov_[4] = state_.pos(1) - last_known_posNED_(1);
 
         // glitch protection is not required so set gate to a large value
-        gate_size[0] = 100.0f;
+        gate_size[3] = 100.0f;
 
-        pos_innov_[2] = state_.pos(2) - last_known_posNED_(2);
-        fuse_map[2] = true;
-        R[2] = 0.5f;
-        R[2] = R[2] * R[2];
+        vel_pos_innov_[5] = state_.pos(2) - last_known_posNED_(2);
+        fuse_map[5] = true;
+        R[5] = 0.5f;
+        R[5] = R[5] * R[5];
         // innovation gate size
-        gate_size[2] = 100.0f;
+        gate_size[5] = 100.0f;
       }
 
       // convert North position noise to variance
-      R[0] = R[0] * R[0];
+      R[3] = R[3] * R[3];
 
       // copy North axis values to East axis
-      R[1] = R[0];
-      gate_size[1] = gate_size[0];
+      R[4] = R[3];
+      gate_size[4] = gate_size[3];
     }
 
     if (fuse_height_) {
-      fuse_map[2] = true;
+      fuse_map[5] = true;
       // calculate the innovation assuming the external vision observaton is in local NED frame
-      pos_innov_[2] = state_.pos(2) - ev_sample_delayed_.posNED(2);
+      vel_pos_innov_[5] = state_.pos(2) - ev_sample_delayed_.posNED(2);
       // observation variance - defined externally
-      R[2] = fmaxf(0.05f, 0.01f);
-      R[2] = R[2] * R[2];
+      R[5] = fmaxf(0.05f, 0.01f);
+      R[5] = R[5] * R[5];
       // innovation gate size
-      gate_size[2] = fmaxf(5.0f, 1.0f);
+      gate_size[5] = fmaxf(5.0f, 1.0f);
     }
     
-    debugFile << R[0] << "," << R[1] << "," << R[2] << ","; 
-    debugFile << gate_size[0] << "," << gate_size[1] << "," << gate_size[2] << ",";
-    debugFile << pos_innov_[0] << "," << pos_innov_[1] << "," << pos_innov_[2] << ",";
+    debugFile << R[0] << "," << R[1] << "," << R[2] << "," << R[3] << "," << R[4] << "," << R[5] << ","; 
+    debugFile << gate_size[0] << "," << gate_size[1] << "," << gate_size[2] << "," << gate_size[3] << "," << gate_size[4] << "," << gate_size[5] << ",";
+    debugFile << vel_pos_innov_[0] << "," << vel_pos_innov_[1] << "," << vel_pos_innov_[2] << "," << vel_pos_innov_[3] << "," << vel_pos_innov_[4] << "," << vel_pos_innov_[5] << ",";
     debugFile << last_known_posNED_(0) << "," << last_known_posNED_(1) << "," << last_known_posNED_(2) << ",";
         
     // calculate innovation test ratios
-    for (unsigned obs_index = 0; obs_index < 3; obs_index++) {
+    for (unsigned obs_index = 0; obs_index < 6; obs_index++) {
       if (fuse_map[obs_index]) {
         // compute the innovation variance SK = HPH + R
-        unsigned state_index = obs_index + 7;	// we start with px and this is the 7. state
-        pos_innov_var_[obs_index] = P_[state_index][state_index] + R[obs_index];
+        unsigned state_index = obs_index + 4;	// we start with vx and this is the 4. state
+        vel_pos_innov_var_[obs_index] = P_[state_index][state_index] + R[obs_index];
         // Compute the ratio of innovation to gate size
-        pos_test_ratio_[obs_index] = sq(pos_innov_[obs_index]) / (sq(gate_size[obs_index]) * pos_innov_var_[obs_index]);
+        vel_pos_test_ratio_[obs_index] = sq(vel_pos_innov_[obs_index]) / (sq(gate_size[obs_index]) * vel_pos_innov_var_[obs_index]);
       }
     }
     
-    debugFile << pos_innov_var_[0] << "," << pos_innov_var_[1] << "," << pos_innov_var_[2] << std::endl;
+    debugFile << vel_pos_innov_var_[0] << "," << vel_pos_innov_var_[1] << "," << vel_pos_innov_var_[2] << "," << vel_pos_innov_var_[3] << "," << vel_pos_innov_var_[4] << "," << vel_pos_innov_var_[5] << ",";
+    debugFile << vel_pos_test_ratio_[0] << "," << vel_pos_test_ratio_[1] << "," << vel_pos_test_ratio_[2] << "," << vel_pos_test_ratio_[3] << "," << vel_pos_test_ratio_[4] << "," << vel_pos_test_ratio_[5] << std::endl;
     
     // check position, velocity and height innovations
     // treat 2D position and height as separate sensors
-    bool pos_check_pass = ((pos_test_ratio_[1] <= 1.0f) && (pos_test_ratio_[0] <= 1.0f));
-    innov_check_pass_map[1] = innov_check_pass_map[0] = pos_check_pass;
-    innov_check_pass_map[2] = (pos_test_ratio_[2] <= 1.0f);
+    bool pos_check_pass = ((vel_pos_test_ratio_[3] <= 1.0f) && (vel_pos_test_ratio_[4] <= 1.0f));
+    innov_check_pass_map[3] = innov_check_pass_map[4] = pos_check_pass;
+    innov_check_pass_map[5] = (vel_pos_test_ratio_[5] <= 1.0f);
     
-    for (unsigned obs_index = 0; obs_index < 3; obs_index++) {
+    for (unsigned obs_index = 0; obs_index < 6; obs_index++) {
       // skip fusion if not requested or checks have failed
       if (!fuse_map[obs_index] || !innov_check_pass_map[obs_index]) {
         continue;
       }
 
-      unsigned state_index = obs_index + 7;	// we start with px and this is the 7. state
+      unsigned state_index = obs_index + 4;	// we start with vx and this is the 4. state
 
       // calculate kalman gain K = PHS, where S = 1/innovation variance
       for (int row = 0; row < k_num_states_; row++) {
-        Kfusion[row] = 0;//P_[row][state_index] / pos_innov_var_[obs_index];
+        Kfusion[row] = P_[row][state_index] / vel_pos_innov_var_[obs_index];
       }
 
       // update covarinace matrix via Pnew = (I - KH)P
@@ -829,7 +860,6 @@ namespace eskf {
 
           //flag as unhealthy
           healthy = false;
-          printf("healthy = %d\n", healthy);
         } 
       }
       
@@ -846,7 +876,7 @@ namespace eskf {
         fixCovarianceErrors();
 
         // apply the state corrections
-        //fuse(Kfusion, pos_innov_[obs_index]);
+        fuse(Kfusion, vel_pos_innov_[obs_index]);
       }
     }
   }
@@ -1125,22 +1155,22 @@ namespace eskf {
         
     for (int i = 0; i <= 3; i++) {
 		  // quaternion states
-		  P_[i][i] = constrain(P_[i][i], 0.0, P_lim[0]);
+		  P_[i][i] = constrain(P_[i][i], 0.0f, P_lim[0]);
 	  }
     
 	  for (int i = 4; i <= 6; i++) {
 		  // NED velocity states
-		  P_[i][i] = constrain(P_[i][i], 0.0, P_lim[1]);
+		  P_[i][i] = constrain(P_[i][i], 0.0f, P_lim[1]);
 	  }
 
 	  for (int i = 7; i <= 9; i++) {
 		  // NED position states
-		  P_[i][i] = constrain(P_[i][i], 0.0, P_lim[2]);
+		  P_[i][i] = constrain(P_[i][i], 0.0f, P_lim[2]);
 	  }
     
 	  for (int i = 10; i <= 12; i++) {
 		  // gyro bias states
-		  P_[i][i] = constrain(P_[i][i], 0.0, P_lim[3]);
+		  P_[i][i] = constrain(P_[i][i], 0.0f, P_lim[3]);
 	  }
     
 	  // force symmetry on the quaternion, velocity, positon and gyro bias state covariances
@@ -1224,11 +1254,13 @@ namespace eskf {
     // calculate an equivalent rotation vector from the quaternion
     scalar_t q0,q1,q2,q3;
     if (state_.quat_nominal.w() >= 0.0f) {
+      printf("first case\n");
       q0 = state_.quat_nominal.w();
       q1 = state_.quat_nominal.x();
       q2 = state_.quat_nominal.y();
       q3 = state_.quat_nominal.z();
     } else {
+      printf("second case\n");
       q0 = -state_.quat_nominal.w();
       q1 = -state_.quat_nominal.x();
       q2 = -state_.quat_nominal.y();
@@ -1345,21 +1377,21 @@ namespace eskf {
   }
 	
   void ESKF::constrainStates() {
-	  state_.quat_nominal.w() = constrain(state_.quat_nominal.w(), -1.0, 1.0);
-    state_.quat_nominal.x() = constrain(state_.quat_nominal.x(), -1.0, 1.0);
-	  state_.quat_nominal.y() = constrain(state_.quat_nominal.y(), -1.0, 1.0);
-	  state_.quat_nominal.z() = constrain(state_.quat_nominal.z(), -1.0, 1.0);
+	  state_.quat_nominal.w() = constrain(state_.quat_nominal.w(), -1.0f, 1.0f);
+    state_.quat_nominal.x() = constrain(state_.quat_nominal.x(), -1.0f, 1.0f);
+	  state_.quat_nominal.y() = constrain(state_.quat_nominal.y(), -1.0f, 1.0f);
+	  state_.quat_nominal.z() = constrain(state_.quat_nominal.z(), -1.0f, 1.0f);
 	  
     for (int i = 0; i < 3; i++) {
-      state_.vel(i) = constrain(state_.vel(i), -1000.0, 1000.0);
+      state_.vel(i) = constrain(state_.vel(i), -1000.0f, 1000.0f);
     }
 
     for (int i = 0; i < 3; i++) {
-      state_.pos(i) = constrain(state_.pos(i), -1.e6, 1.e6);
+      state_.pos(i) = constrain(state_.pos(i), -1.e6f, 1.e6f);
     }
 
     for (int i = 0; i < 3; i++) {
-      state_.gyro_bias(i) = constrain(state_.gyro_bias(i), -0.349066 * _dt_ekf_avg, 0.349066 * _dt_ekf_avg);
+      state_.gyro_bias(i) = constrain(state_.gyro_bias(i), -0.349066f * _dt_ekf_avg, 0.349066f * _dt_ekf_avg);
     }
 
     for (int i = 0; i < 3; i++) {
