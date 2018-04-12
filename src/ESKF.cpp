@@ -8,6 +8,7 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <inttypes.h>
 
 using namespace Eigen;
 
@@ -177,14 +178,12 @@ namespace eskf {
     _q_down_sampled.y() = 0.0f;
     _q_down_sampled.z() = 0.0f;
 
-    const int _imu_buffer_length = 15;
     _imu_buffer.allocate(_imu_buffer_length);
     for (int index = 0; index < _imu_buffer_length; index++) {
 		  imuSample imu_sample_init = {};
 		  _imu_buffer.push(imu_sample_init);
 		}
 
-    const int _obs_buffer_length = 9;
     _ext_vision_buffer.allocate(_obs_buffer_length);
     for (int index = 0; index < _obs_buffer_length; index++) {
       extVisionSample ext_vision_sample_init = {};
@@ -281,7 +280,8 @@ namespace eskf {
     _imu_sample_new.delta_vel	= imu.delta_vel;
     _imu_sample_new.delta_ang_dt = imu.delta_ang_dt;
     _imu_sample_new.delta_vel_dt = imu.delta_vel_dt;
-
+    _imu_sample_new.time_us	= imu.time_us;
+    
     // accumulate the time deltas
     _imu_down_sampled.delta_ang_dt += imu.delta_ang_dt;
     _imu_down_sampled.delta_vel_dt += imu.delta_vel_dt;
@@ -334,10 +334,12 @@ namespace eskf {
       return true;
     }
     
+    min_obs_interval_us = (_imu_sample_new.time_us - _imu_sample_delayed.time_us) / (_obs_buffer_length - 1);
+    
 	  return false;
   }
   
-  void ESKF::predict(const ESKF::vec3 &w, const ESKF::vec3 &a, ESKF::scalar_t dt) {
+  void ESKF::predict(const ESKF::vec3 &w, const ESKF::vec3 &a, uint64_t time_us, ESKF::scalar_t dt) {
     
     // convert ROS body to PX4 body frame IMU data
     vec3 px4body_w = rosb2px4b * w;
@@ -352,6 +354,7 @@ namespace eskf {
 	  imu_sample_new.delta_vel = delta_vel;
     imu_sample_new.delta_ang_dt = dt;
     imu_sample_new.delta_vel_dt = dt;
+    imu_sample_new.time_us = time_us;
     
     /*
     {
@@ -376,7 +379,9 @@ namespace eskf {
       _imu_buffer.push(imu_sample_new);
       imu_updated_ = true;
        // get the oldest data from the buffer
-		  _imu_sample_delayed = _imu_buffer.get_oldest();
+      printf("imu_sample_new.time_us = %" PRIu64 "\n", imu_sample_new.time_us); 
+      _imu_sample_delayed = _imu_buffer.get_oldest();
+      printf("imu_sample_delayed.time_us = %" PRIu64 "\n", _imu_sample_delayed.time_us);
     } else {
       imu_updated_ = false;
       return;
@@ -881,23 +886,37 @@ namespace eskf {
     }
   }
   
-  void ESKF::update(const ESKF::quat& q, const ESKF::vec3& p, scalar_t dt) {
-    /*
+  void ESKF::update(const ESKF::quat& q, const ESKF::vec3& p, uint64_t time_usec, scalar_t dt) {
     // q here is rotation from enu to ros body
     quat q_nb = (q_rb.conjugate() * q.conjugate() * q_ne.conjugate()).conjugate();
     q_nb.normalize();
     vec3 pos_nb = q_ne.conjugate().toRotationMatrix() * p;
     
-    extVisionSample ev_sample_new;
-    // calculate the system time-stamp for the mid point of the integration period
-    // copy required data
-    ev_sample_new.angErr = 0.05f;
-    ev_sample_new.posErr = 0.05f;
-    ev_sample_new.quatNED = q_nb;
-    ev_sample_new.posNED = pos_nb;
-     // push to buffer
-    _ext_vision_buffer.push(ev_sample_new);
-    */
+    // limit data rate to prevent data being lost
+	  if (time_usec - time_last_ext_vision > min_obs_interval_us) {
+      extVisionSample ev_sample_new;
+      // calculate the system time-stamp for the mid point of the integration period
+      // copy required data
+      ev_sample_new.angErr = 0.05f;
+      ev_sample_new.posErr = 0.05f;
+      ev_sample_new.quatNED = q_nb;
+      ev_sample_new.posNED = pos_nb;
+      ev_sample_new.time_us = time_usec - ev_delay_ms * 1000;
+      time_last_ext_vision = time_usec;
+       // push to buffer
+      _ext_vision_buffer.push(ev_sample_new);
+      printf("push ok\n");
+      printf("ev_sample_new.time_us = %" PRIu64 "\n", ev_sample_new.time_us);
+    }
+    if(_ext_vision_buffer.pop_first_older_than(_imu_sample_delayed.time_us, &ev_sample_delayed_)) {
+      ev_pos_ = true;
+      printf("pop ok\n");
+    } else {
+      ev_pos_ = false;
+      printf("pop false\n");
+      printf("imu_sample_delayed.time_us = %" PRIu64 "\n", _imu_sample_delayed.time_us);
+    }
+    printf("_ext_vision_buffer.length() = %d\n", _ext_vision_buffer.get_length());
   }
   
   /*

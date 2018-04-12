@@ -31,7 +31,7 @@ namespace eskf {
       }
       
       //  run kalman filter
-      eskf_.predict(wm, am, delta);
+      eskf_.predict(wm, am, static_cast<uint64_t>(imuMsg->header.stamp.toSec()*1e6f), delta);
       
       const eskf::ESKF::quat n2b = eskf_.getQuat();
       const vec3 orientation = eskf_.getRPY(n2b.matrix());
@@ -57,7 +57,7 @@ namespace eskf {
       // get measurements
       quat z_q = quat(poseMsg->pose.orientation.w, poseMsg->pose.orientation.x, poseMsg->pose.orientation.y, poseMsg->pose.orientation.z);
       vec3 z_p = vec3(poseMsg->pose.position.x, poseMsg->pose.position.y, poseMsg->pose.position.z);
-      eskf_.update(z_q, z_p, delta);
+      eskf_.update(z_q, z_p, static_cast<uint64_t>(poseMsg->header.stamp.toSec()*1e6f), delta);
     }
     prevStampPOSE_ = poseMsg->header.stamp;
   }

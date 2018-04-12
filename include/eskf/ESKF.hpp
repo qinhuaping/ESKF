@@ -34,9 +34,9 @@ namespace eskf {
 
 		_size = size;
 		// set the time elements to zero so that bad data is not retrieved from the buffers
-		//for (unsigned index = 0; index < _size; index++) {
-	  //  _buffer[index].time_us = 0;
-		//}
+		for (unsigned index = 0; index < _size; index++) {
+	    _buffer[index].time_us = 0;
+		}
 		_first_write = true;
 		return true;
 	}
@@ -80,7 +80,41 @@ namespace eskf {
 	inline data_type get_newest() {
 		return _buffer[_head];
 	}
+  
+  inline bool pop_first_older_than(uint64_t timestamp, data_type *sample) {
+		// start looking from newest observation data
+		for (unsigned i = 0; i < _size; i++) {
+			int index = (_head - i);
+			index = index < 0 ? _size + index : index;
 
+			if (timestamp >= _buffer[index].time_us && timestamp - _buffer[index].time_us < 100000) {
+
+				// TODO Re-evaluate the static cast and usage patterns
+				memcpy(static_cast<void *>(sample), static_cast<void *>(&_buffer[index]), sizeof(*sample));
+
+				// Now we can set the tail to the item which comes after the one we removed
+				// since we don't want to have any older data in the buffer
+				if (index == static_cast<int>(_head)) {
+					_tail = _head;
+					_first_write = true;
+
+				} else {
+					_tail = (index + 1) % _size;
+				}
+
+				_buffer[index].time_us = 0;
+
+				return true;
+			}
+
+			if (index == static_cast<int>(_tail)) {
+				// we have reached the tail and haven't got a match
+				return false;
+			}
+		}
+		return false;
+	}
+  
 	data_type &operator[](unsigned index) {
 		return _buffer[index];
 	}
@@ -124,9 +158,9 @@ namespace eskf {
     
     ESKF();
 
-    void predict(const vec3& w, const vec3& a, scalar_t dt);
+    void predict(const vec3& w, const vec3& a, uint64_t time_us, scalar_t dt);
 
-    void update(const quat& q, const vec3& p, scalar_t dt);
+    void update(const quat& q, const vec3& p, uint64_t time_us, scalar_t dt);
     
     const quat& getQuat() const;
 
@@ -145,8 +179,7 @@ namespace eskf {
     void initialiseCovariance();
     void predictCovariance();
     void fusePosHeight();
-    //void updatePos(const vec3& p, scalar_t dt);
-    //void updateYaw(const quat& q, scalar_t dt);
+    void fuseYaw();
     mat3 quat_to_invrotmat(const quat &q);
     quat from_axis_angle(vec3 vec);
     quat from_axis_angle(const vec3 &axis, scalar_t theta);
@@ -170,31 +203,37 @@ namespace eskf {
       vec3    delta_vel;		///< delta velocity in body frame (integrated accelerometer measurements) (m/sec)
       scalar_t  delta_ang_dt;	///< delta angle integration period (sec)
       scalar_t  delta_vel_dt;	///< delta velocity integration period (sec)
+      uint64_t  time_us;		///< timestamp of the measurement (uSec)
     };
   
     struct extVisionSample {
 	    vec3 posNED;	///< measured NED body position relative to the local origin (m)
       quat quatNED;		///< measured quaternion orientation defining rotation from NED to body frame
-      float posErr;		///< 1-Sigma spherical position accuracy (m)
-      float angErr;		///< 1-Sigma angular error (rad)
+      scalar_t posErr;		///< 1-Sigma spherical position accuracy (m)
+      scalar_t angErr;		///< 1-Sigma angular error (rad)
+      uint64_t time_us;		///< timestamp of the measurement (uSec)
     };
     
     imuSample _imu_sample_new{};		///< imu sample capturing the newest imu data
     imuSample _imu_down_sampled{};  ///< down sampled imu data (sensor rate -> filter update rate)
     vec3 _delVel_sum; ///< summed delta velocity (m/sec)
     RingBuffer<imuSample> _imu_buffer;
-
+        
     quat _q_down_sampled;
-    float _imu_collection_time_adj{0.0f};	///< the amount of time the IMU collection needs to be advanced to meet the target set by FILTER_UPDATE_PERIOD_MS (sec)
+    scalar_t _imu_collection_time_adj{0.0f};	///< the amount of time the IMU collection needs to be advanced to meet the target set by FILTER_UPDATE_PERIOD_MS (sec)
     imuSample _imu_sample_delayed{};	// captures the imu sample on the delayed time horizon
     extVisionSample ev_sample_delayed_{}; 
     RingBuffer<extVisionSample> _ext_vision_buffer;
-    
+    scalar_t ev_delay_ms{100.0f};		///< off-board vision measurement delay relative to the IMU (mSec)
+    uint64_t time_last_ext_vision;
+    unsigned min_obs_interval_us{0}; // minimum time interval between observations that will guarantee data is not lost (usec)
     scalar_t _dt_ekf_avg{0.001f * FILTER_UPDATE_PERIOD_MS}; ///< average update rate of the ekf
     
     bool collect_imu(imuSample& imu);
     bool imu_updated_;
     bool filter_initialised_;
+    const int _obs_buffer_length = 9;
+    const int _imu_buffer_length = 15;
     
     scalar_t P_[k_num_states_][k_num_states_]; /// System covariance matrix
 
