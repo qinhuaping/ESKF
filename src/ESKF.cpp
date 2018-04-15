@@ -16,8 +16,8 @@ namespace eskf {
   
   std::ofstream debugFile("/home/elia/Documents/eskf.csv");
   std::ofstream debugFile2("/home/elia/Documents/eskfimu.csv");
+  std::ofstream debugFile3("/home/elia/Documents/eskffuse.csv");
   std::ofstream debugFileCov("/home/elia/Documents/eskfcov.csv");
-  static double curr_time_sec = 0.0; 
   
   template <typename T> inline T sq(T var) {
     return var * var;
@@ -130,15 +130,18 @@ namespace eskf {
               << "SF_10_" << "," << "SF_11_" << "," << "SF_12_" << "," << "SF_13_" << "," << "SF_14_" << "," << "SF_15_" << "," << "SF_16_" << "," << "SF_17_" << "," << "SF_18_" << "," << "SF_19_" << "," << "SF_20_" << ","
               << "SG_0_" << "," << "SG_1_" << "," << "SG_2_" << "," << "SG_3_" << "," << "SG_4_" << "," << "SG_5_" << "," << "SG_6_" << "," << "SG_7_" << ","
               << "SQ_0_" << "," << "SQ_1_" << "," << "SQ_2_" << "," << "SQ_3_" << "," << "SQ_4_" << "," << "SQ_5_" << "," << "SQ_6_" << "," << "SQ_7_" << "," << "SQ_8_" << "," << "SQ_9_" << "," << "SQ_10_" << ","
-              << "SPP_0_" << "," << "SPP_1_" << "," << "SPP_2_" << "," << "SPP_3_" << "," << "SPP_4_" << "," << "SPP_5_" << "," << "SPP_6_" << "," << "SPP_7_" << "," << "SPP_8_" << "," << "SPP_9_" << "," << "SPP_10_" << ","
-              << "R_0_" << "," << "R_1_" << "," << "R_2_" << ","
-              << "gate_size_0_" << "," << "gate_size_1_" << "," << "gate_size_2_" << ","
-              << "pos_innov_0_" << "," << "pos_innov_1_" << "," << "pos_innov_2_" << ","
+              << "SPP_0_" << "," << "SPP_1_" << "," << "SPP_2_" << "," << "SPP_3_" << "," << "SPP_4_" << "," << "SPP_5_" << "," << "SPP_6_" << "," << "SPP_7_" << "," << "SPP_8_" << "," << "SPP_9_" << "," << "SPP_10_" << std::endl;
+    
+    debugFile3 << "time_" << "," << "R_0_" << "," << "R_1_" << "," << "R_2_" << "," << "R_3_" << "," << "R_4_" << "," << "R_5_" << ","
+              << "gate_size_0_" << "," << "gate_size_1_" << "," << "gate_size_2_" << "," << "gate_size_3_" << "," << "gate_size_4_" << "," << "gate_size_5_" << ","
+              << "vel_pos_innov_0_" << "," << "vel_pos_innov_1_" << "," << "vel_pos_innov_2_" << "," << "vel_pos_innov_3_" << "," << "vel_pos_innov_4_" << "," << "vel_pos_innov_5_" << ","
               << "last_known_posNED_0_" << "," << "last_known_posNED_1_" << "," << "last_known_posNED_2_" << ","
-              << "pos_innov_var_0_" << "," << "pos_innov_var_1_" << "," << "pos_innov_var_2_" << ","
-              << "pos_test_ratio_0_" << "," << "pos_test_ratio_1_" << "," << "pos_test_ratio_2_" << std::endl;  
+              << "vel_pos_innov_var_0_" << "," << "vel_pos_innov_var_1_" << "," << "vel_pos_innov_var_2_" << "," << "vel_pos_innov_var_3_" << "," << "vel_pos_innov_var_4_" << "," << "vel_pos_innov_var_5_" << ","
+              << "vel_pos_test_ratio_0_" << "," << "vel_pos_test_ratio_1_" << "," << "vel_pos_test_ratio_2_" << "," << "vel_pos_test_ratio_3_" << "," << "vel_pos_test_ratio_4_" << "," << "vel_pos_test_ratio_5_" << std::endl;  
+    
     debugFile2 << "time_" << "," << "q_down_sampled_0_" << "," << "q_down_sampled_1_" << "," << "q_down_sampled_2_" << "," << "q_down_sampled_3_" << ",";
     debugFile2 << "delta_vel_0_" << "," << "delta_vel_1_" << "," << "delta_vel_2_" << std::endl;
+    
     // zeros state_
     state_.quat_nominal = quat(1, 0, 0, 0);
     state_.vel = vec3(0, 0, 0);
@@ -197,6 +200,8 @@ namespace eskf {
     
     filter_initialised_ = false;
     imu_updated_ = false;
+    memset(vel_pos_innov_,0,6*sizeof(float));
+    time_last_hgt_fuse_ = time_last_imu_;
   }
   
   void ESKF::initialiseCovariance() {
@@ -356,6 +361,8 @@ namespace eskf {
     imu_sample_new.delta_vel_dt = dt;
     imu_sample_new.time_us = time_us;
     
+    time_last_imu_ = time_us;
+    
     /*
     {
       scalar_t now = ros::Time::now().toSec();
@@ -379,9 +386,9 @@ namespace eskf {
       _imu_buffer.push(imu_sample_new);
       imu_updated_ = true;
        // get the oldest data from the buffer
-      printf("imu_sample_new.time_us = %" PRIu64 "\n", imu_sample_new.time_us); 
+     // printf("imu_sample_new.time_us = %" PRIu64 "\n", imu_sample_new.time_us); 
       _imu_sample_delayed = _imu_buffer.get_oldest();
-      printf("imu_sample_delayed.time_us = %" PRIu64 "\n", _imu_sample_delayed.time_us);
+      //printf("imu_sample_delayed.time_us = %" PRIu64 "\n", _imu_sample_delayed.time_us);
     } else {
       imu_updated_ = false;
       return;
@@ -471,6 +478,7 @@ namespace eskf {
     debugFile << _dt_ekf_avg << ",";
     predictCovariance();
     fusePosHeight();
+    controlHeightSensorTimeouts();
   }
   
   void ESKF::predictCovariance() {
@@ -602,7 +610,7 @@ namespace eskf {
     SPP[9] = 2*q0*q2 + 2*q1*q3;
     SPP[10] = SF[16];
     
-    debugFile << SPP[0] << "," << SPP[1] << "," << SPP[2] << "," << SPP[3] << "," << SPP[4] << "," << SPP[5] << "," << SPP[6] << "," << SPP[7] << "," << SPP[8] << "," << SPP[9] << "," << SPP[10] << ",";
+    debugFile << SPP[0] << "," << SPP[1] << "," << SPP[2] << "," << SPP[3] << "," << SPP[4] << "," << SPP[5] << "," << SPP[6] << "," << SPP[7] << "," << SPP[8] << "," << SPP[9] << "," << SPP[10] << std::endl;
     
     // covariance update
     // calculate variances and upper diagonal covariances for quaternion, velocity, position and gyro bias states
@@ -747,7 +755,101 @@ namespace eskf {
     count++;
   }
   
+  void ESKF::controlHeightSensorTimeouts() {
+    /*
+     * Handle the case where we have not fused height measurements recently and
+     * uncertainty exceeds the max allowable. Reset using the best available height
+     * measurement source, continue using it after the reset and declare the current
+     * source failed if we have switched.
+    */
+
+    // check if height has been inertial deadreckoning for too long
+    bool hgt_fusion_timeout = ((time_last_imu_ - time_last_hgt_fuse_) > 5e6);
+
+    // reset the vertical position and velocity states
+    if ((P_[9][9] > sq(hgt_reset_lim)) && (hgt_fusion_timeout)) {
+      // boolean that indicates we will do a height reset
+      bool reset_height = false;
+
+      // handle the case where we are using external vision data for height
+      if (ev_hgt_) {
+        // check if vision data is available
+        extVisionSample ev_init = _ext_vision_buffer.get_newest();
+        bool ev_data_available = ((time_last_imu_ - ev_init.time_us) < 2 * EV_MAX_INTERVAL);
+
+        // reset to ev data if it is available
+        bool reset_to_ev = ev_data_available;
+
+        if (reset_to_ev) {
+          // request a reset
+          reset_height = true;
+          printf("EKF ev hgt timeout - reset to ev hgt\n");
+        } else {
+          // we have nothing to reset to
+          reset_height = false;
+        }
+      }
+
+      // Reset vertical position and velocity states to the last measurement
+      if (reset_height) {
+        resetHeight();
+        // Reset the timout timer
+        time_last_hgt_fuse_ = time_last_imu_;
+      }
+    }
+  }
+  
+  void ESKF::resetHeight() {
+    // reset the vertical position
+    if (ev_hgt_) {
+      // initialize vertical position with newest measurement
+      extVisionSample ev_newest = _ext_vision_buffer.get_newest();
+
+      // use the most recent data if it's time offset from the fusion time horizon is smaller
+      int32_t dt_newest = ev_newest.time_us - _imu_sample_delayed.time_us;
+      int32_t dt_delayed = ev_sample_delayed_.time_us - _imu_sample_delayed.time_us;
+
+      if (std::abs(dt_newest) < std::abs(dt_delayed)) {
+        state_.pos(2) = ev_newest.posNED(2);
+      } else {
+        state_.pos(2) = ev_sample_delayed_.posNED(2);
+      }
+    }
+
+    // reset the vertical velocity covariance values
+    zeroRows(P_, 6, 6);
+    zeroCols(P_, 6, 6);
+
+    // we don't know what the vertical velocity is, so set it to zero
+    state_.vel(2) = 0.0f;
+
+    // Set the variance to a value large enough to allow the state to converge quickly
+    // that does not destabilise the filter
+    P_[6][6] = 10.0f;
+  }
+    
   void ESKF::fusePosHeight() {
+    if(!fuse_) return;
+    
+    /*
+    {
+      scalar_t now = ros::Time::now().toSec();
+      static scalar_t prev = now;
+      scalar_t dt_sec = (now - prev);
+      static scalar_t t = 0.0f;
+      static int counter = 0;
+      if(t>= 1.0f) {
+        t = 0;
+        printf("HZ_FUSEVELPOSHIGHT = %d\n", counter);
+        counter = 0;
+      } else {
+        t += dt_sec;
+        counter++;
+      }
+      prev = now;
+    }
+    */
+    
     bool fuse_map[6] = {}; // map of booleans true when [VN,VE,VD,PN,PE,PD] observations are available
     bool innov_check_pass_map[6] = {}; // true when innovations consistency checks pass for [PN,PE,PD] observations
     scalar_t R[6] = {}; // observation variances for [VN,VE,VD,PN,PE,PD]
@@ -758,6 +860,8 @@ namespace eskf {
       fuse_map[3] = fuse_map[4] = true;
 
       if (ev_pos_) {
+        ev_pos_ = false;
+        fuse_ = false;
         // calculate innovations
         // use the absolute position
         vel_pos_innov_[3] = state_.pos(0) - ev_sample_delayed_.posNED(0);
@@ -796,7 +900,8 @@ namespace eskf {
       R[4] = R[3];
       gate_size[4] = gate_size[3];
     }
-
+    
+    /*
     if (fuse_height_) {
       fuse_map[5] = true;
       // calculate the innovation assuming the external vision observaton is in local NED frame
@@ -807,11 +912,13 @@ namespace eskf {
       // innovation gate size
       gate_size[5] = fmaxf(5.0f, 1.0f);
     }
+    */
     
-    debugFile << R[0] << "," << R[1] << "," << R[2] << "," << R[3] << "," << R[4] << "," << R[5] << ","; 
-    debugFile << gate_size[0] << "," << gate_size[1] << "," << gate_size[2] << "," << gate_size[3] << "," << gate_size[4] << "," << gate_size[5] << ",";
-    debugFile << vel_pos_innov_[0] << "," << vel_pos_innov_[1] << "," << vel_pos_innov_[2] << "," << vel_pos_innov_[3] << "," << vel_pos_innov_[4] << "," << vel_pos_innov_[5] << ",";
-    debugFile << last_known_posNED_(0) << "," << last_known_posNED_(1) << "," << last_known_posNED_(2) << ",";
+    debugFile3 << curr_time_sec << ",";
+    debugFile3 << R[0] << "," << R[1] << "," << R[2] << "," << R[3] << "," << R[4] << "," << R[5] << ","; 
+    debugFile3 << gate_size[0] << "," << gate_size[1] << "," << gate_size[2] << "," << gate_size[3] << "," << gate_size[4] << "," << gate_size[5] << ",";
+    debugFile3 << vel_pos_innov_[0] << "," << vel_pos_innov_[1] << "," << vel_pos_innov_[2] << "," << vel_pos_innov_[3] << "," << vel_pos_innov_[4] << "," << vel_pos_innov_[5] << ",";
+    debugFile3 << last_known_posNED_(0) << "," << last_known_posNED_(1) << "," << last_known_posNED_(2) << ",";
         
     // calculate innovation test ratios
     for (unsigned obs_index = 0; obs_index < 6; obs_index++) {
@@ -824,8 +931,8 @@ namespace eskf {
       }
     }
     
-    debugFile << vel_pos_innov_var_[0] << "," << vel_pos_innov_var_[1] << "," << vel_pos_innov_var_[2] << "," << vel_pos_innov_var_[3] << "," << vel_pos_innov_var_[4] << "," << vel_pos_innov_var_[5] << ",";
-    debugFile << vel_pos_test_ratio_[0] << "," << vel_pos_test_ratio_[1] << "," << vel_pos_test_ratio_[2] << "," << vel_pos_test_ratio_[3] << "," << vel_pos_test_ratio_[4] << "," << vel_pos_test_ratio_[5] << std::endl;
+    debugFile3 << vel_pos_innov_var_[0] << "," << vel_pos_innov_var_[1] << "," << vel_pos_innov_var_[2] << "," << vel_pos_innov_var_[3] << "," << vel_pos_innov_var_[4] << "," << vel_pos_innov_var_[5] << ",";
+    debugFile3 << vel_pos_test_ratio_[0] << "," << vel_pos_test_ratio_[1] << "," << vel_pos_test_ratio_[2] << "," << vel_pos_test_ratio_[3] << "," << vel_pos_test_ratio_[4] << "," << vel_pos_test_ratio_[5] << std::endl;
     
     // check position, velocity and height innovations
     // treat 2D position and height as separate sensors
@@ -905,18 +1012,27 @@ namespace eskf {
       time_last_ext_vision = time_usec;
        // push to buffer
       _ext_vision_buffer.push(ev_sample_new);
-      printf("push ok\n");
-      printf("ev_sample_new.time_us = %" PRIu64 "\n", ev_sample_new.time_us);
+      //printf("push ok\n");
+      //printf("ev_sample_new.time_us = %" PRIu64 "\n", ev_sample_new.time_us);
     }
     if(_ext_vision_buffer.pop_first_older_than(_imu_sample_delayed.time_us, &ev_sample_delayed_)) {
       ev_pos_ = true;
-      printf("pop ok\n");
+      fuse_ = true;
+      ev_hgt_ = true;
+      //printf("pop ok\n");
     } else {
       ev_pos_ = false;
-      printf("pop false\n");
-      printf("imu_sample_delayed.time_us = %" PRIu64 "\n", _imu_sample_delayed.time_us);
+      fuse_ = false;
+      ev_hgt_ = false;
+      //printf("pop false\n");
+      //printf("imu_sample_delayed.time_us = %" PRIu64 "\n", _imu_sample_delayed.time_us);
     }
-    printf("_ext_vision_buffer.length() = %d\n", _ext_vision_buffer.get_length());
+    if(state_.pos(2) > 1.0) {
+      in_air_ = true;
+    } else {
+      in_air_ = false;
+    }
+    //printf("_ext_vision_buffer.length() = %d\n", _ext_vision_buffer.get_length());
   }
   
   /*

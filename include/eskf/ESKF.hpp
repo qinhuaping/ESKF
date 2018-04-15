@@ -5,6 +5,8 @@
 #include <Eigen/Dense>
 #include <ros/time.h>
 
+#define EV_MAX_INTERVAL		2e5	///< Maximum allowable time interval between external vision system measurements (uSec)
+
 namespace eskf {
 
   template <typename data_type>
@@ -179,7 +181,9 @@ namespace eskf {
     void initialiseCovariance();
     void predictCovariance();
     void fusePosHeight();
+    void resetHeight();
     void fuseYaw();
+    void controlHeightSensorTimeouts();
     mat3 quat_to_invrotmat(const quat &q);
     quat from_axis_angle(vec3 vec);
     quat from_axis_angle(const vec3 &axis, scalar_t theta);
@@ -226,6 +230,8 @@ namespace eskf {
     RingBuffer<extVisionSample> _ext_vision_buffer;
     scalar_t ev_delay_ms{100.0f};		///< off-board vision measurement delay relative to the IMU (mSec)
     uint64_t time_last_ext_vision;
+    uint64_t time_last_imu_ {0};
+    uint64_t time_last_hgt_fuse_ {0};
     unsigned min_obs_interval_us{0}; // minimum time interval between observations that will guarantee data is not lost (usec)
     scalar_t _dt_ekf_avg{0.001f * FILTER_UPDATE_PERIOD_MS}; ///< average update rate of the ekf
     
@@ -271,8 +277,12 @@ namespace eskf {
     bool fuse_pos_ = true;
 	  bool fuse_height_ = false;
     bool ev_pos_ = false;
+    bool ev_hgt_ = false;
+    bool fuse_ = true;
     bool in_air_ = false;
     vec3 last_known_posNED_;
+    double curr_time_sec = 0.0; 
+    scalar_t hgt_reset_lim{0.0f};
   };
 }
 
