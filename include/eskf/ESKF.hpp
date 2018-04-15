@@ -275,7 +275,7 @@ namespace eskf {
     quat q_rb; ///< rotation from ROS body to PX4 body
     
     bool fuse_pos_ = true;
-	  bool fuse_height_ = false;
+	  bool fuse_height_ = true;
     bool ev_pos_ = false;
     bool ev_hgt_ = false;
     bool fuse_ = true;

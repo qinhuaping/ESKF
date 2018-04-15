@@ -901,7 +901,6 @@ namespace eskf {
       gate_size[4] = gate_size[3];
     }
     
-    /*
     if (fuse_height_) {
       fuse_map[5] = true;
       // calculate the innovation assuming the external vision observaton is in local NED frame
@@ -912,7 +911,6 @@ namespace eskf {
       // innovation gate size
       gate_size[5] = fmaxf(5.0f, 1.0f);
     }
-    */
     
     debugFile3 << curr_time_sec << ",";
     debugFile3 << R[0] << "," << R[1] << "," << R[2] << "," << R[3] << "," << R[4] << "," << R[5] << ","; 
