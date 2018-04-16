@@ -182,7 +182,7 @@ namespace eskf {
     void predictCovariance();
     void fusePosHeight();
     void resetHeight();
-    void fuseYaw();
+    void fuseHeading();
     void controlHeightSensorTimeouts();
     mat3 quat_to_invrotmat(const quat &q);
     quat from_axis_angle(vec3 vec);
@@ -277,6 +277,7 @@ namespace eskf {
     bool fuse_pos_ = true;
 	  bool fuse_height_ = true;
     bool ev_pos_ = false;
+    bool ev_yaw_ = false;
     bool ev_hgt_ = false;
     bool fuse_ = true;
     bool in_air_ = false;

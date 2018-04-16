@@ -479,6 +479,7 @@ namespace eskf {
     predictCovariance();
     fusePosHeight();
     controlHeightSensorTimeouts();
+    fuseHeading();
   }
   
   void ESKF::predictCovariance() {
@@ -1015,11 +1016,13 @@ namespace eskf {
     }
     if(_ext_vision_buffer.pop_first_older_than(_imu_sample_delayed.time_us, &ev_sample_delayed_)) {
       ev_pos_ = true;
+      ev_yaw_ = true;
       fuse_ = true;
       ev_hgt_ = true;
       //printf("pop ok\n");
     } else {
       ev_pos_ = false;
+      ev_yaw_ = false;
       fuse_ = false;
       ev_hgt_ = false;
       //printf("pop false\n");
@@ -1033,8 +1036,10 @@ namespace eskf {
     //printf("_ext_vision_buffer.length() = %d\n", _ext_vision_buffer.get_length());
   }
   
-  /*
-  void ESKF::updateYaw(const quat& q, scalar_t dt) {
+  void ESKF::fuseHeading() {
+    if(!ev_yaw_) return;
+    ev_yaw_ = false;
+    
     // assign intermediate state variables
     scalar_t q0 = state_.quat_nominal.w();
     scalar_t q1 = state_.quat_nominal.x();
@@ -1044,7 +1049,7 @@ namespace eskf {
     scalar_t predicted_hdg, measured_hdg;
     scalar_t H_YAW[4];
     
-    q_nb = (q_rb.conjugate() * q.conjugate() * q_ne.conjugate()).conjugate();
+    quat q_nb = (q_rb.conjugate() * ev_sample_delayed_.quatNED.conjugate() * q_ne.conjugate()).conjugate();
     q_nb.normalize();
     //std::cout << "q_er = " << std::endl << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << std::endl;
     //std::cout << "n2b = " << std::endl << q_nb.toRotationMatrix() << std::endl;
@@ -1156,7 +1161,7 @@ namespace eskf {
     } else {
       // the innovation variance contribution from the state covariances is negative which means the covariance matrix is badly conditioned
       // we reinitialise the covariance matrix and abort this fusion step
-      initialiseCovariance(dt);
+      initialiseCovariance();
       printf("EKF mag yaw fusion numerical error - covariance reset\n");
       return;
     }
@@ -1244,13 +1249,12 @@ namespace eskf {
       }
 
       // correct the covariance marix for gross errors
-      fixCovarianceErrors(dt);
+      fixCovarianceErrors();
 
       // apply the state corrections
       fuse(Kfusion, heading_innov);
     }
   }
-  */
   
   // calculate the inverse rotation matrix from a quaternion rotation
   ESKF::mat3 ESKF::quat_to_invrotmat(const quat &q) {
