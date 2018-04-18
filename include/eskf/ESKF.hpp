@@ -189,7 +189,8 @@ namespace eskf {
     quat from_axis_angle(const vec3 &axis, scalar_t theta);
     vec3 to_axis_angle(const quat& q);
     mat3 quat2dcm(const quat& q);
-
+    vec3 dcm2vec(const ESKF::mat3& dcm);
+    
     /* State vector:
      * Attitude quaternion
      * Delta Angle bias - rad (X,Y,Z)
@@ -266,7 +267,6 @@ namespace eskf {
     scalar_t vel_pos_innov_[6] {};	///< ROS velocity and position innovations: (m**2)
 	  scalar_t vel_pos_innov_var_[6] {};	///< ROS velocity and position innovation variances: (m**2)
     
-    scalar_t yaw_err{0.05f};
     scalar_t heading_innov_gate{2.6f};		///< heading fusion innovation consistency gate size (STD)
     
     mat3 rosb2px4b; ///< rotation from ROS body to PX4 body frame. need conversion for IMU
@@ -284,6 +284,10 @@ namespace eskf {
     vec3 last_known_posNED_;
     double curr_time_sec = 0.0; 
     scalar_t hgt_reset_lim{0.0f};
+    scalar_t Tbn_1_0 = 0;
+    scalar_t Tbn_0_0 = 0;
+    scalar_t Tbn_0_1_neg = 0; 
+    scalar_t Tbn_1_1 = 0;
   };
 }
 

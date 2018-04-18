@@ -18,6 +18,8 @@ namespace eskf {
   std::ofstream debugFile2("/home/elia/Documents/eskfimu.csv");
   std::ofstream debugFile3("/home/elia/Documents/eskffuse.csv");
   std::ofstream debugFileCov("/home/elia/Documents/eskfcov.csv");
+  std::ofstream debugFileHeading("/home/elia/Documents/eskfheading.csv");
+  std::ofstream debugFileMat("/home/elia/Documents/eskfmat.csv");
   
   template <typename T> inline T sq(T var) {
     return var * var;
@@ -109,7 +111,23 @@ namespace eskf {
     dcm(2, 2) = aSq - bSq - cSq + dSq;
     return dcm;
   }
+  
+  ESKF::vec3 ESKF::dcm2vec(const ESKF::mat3& dcm) {
+    scalar_t phi_val = atan2(dcm(2, 1), dcm(2, 2));
+    scalar_t theta_val = asin(-dcm(2, 0));
+    scalar_t psi_val = atan2(dcm(1, 0), dcm(0, 0));
+    scalar_t pi = M_PI;
 
+    if (fabs(theta_val - pi / 2) < 1.0e-3) {
+      phi_val = 0.0;
+      psi_val = atan2(dcm(1, 2), dcm(0, 2));
+    } else if (fabs(theta_val + pi / 2) < 1.0e-3) {
+      phi_val = 0.0;
+      psi_val = atan2(-dcm(1, 2), -dcm(0, 2));
+    }
+    return vec3(phi_val, theta_val, psi_val);
+  }
+  
   ESKF::ESKF() {
     debugFile << "time_" << "," << "delta_ang0_" << "," << "delta_ang1_" << "," << "delta_ang2_" << ","
               << "delta_vel0_" << "," << "delta_vel1_" << "," << "delta_vel2_" << ","
@@ -141,6 +159,12 @@ namespace eskf {
     
     debugFile2 << "time_" << "," << "q_down_sampled_0_" << "," << "q_down_sampled_1_" << "," << "q_down_sampled_2_" << "," << "q_down_sampled_3_" << ",";
     debugFile2 << "delta_vel_0_" << "," << "delta_vel_1_" << "," << "delta_vel_2_" << std::endl;
+    
+    debugFileHeading << "time_" << "," << "H_YAW_0_" << "," << "H_YAW_1_" << "," << "H_YAW_2_" << "," << "H_YAW_3_" << "," << "HDG_" << ","
+                     << "R_00_" << "," << "R_01_" << "," << "R_02_" << "," << "R_10_" << "," << "R_11_" << "," << "R_12_" << "," << "R_20_" << "," << "R_21_" << "," << "R_22_" << ","
+                     << "Tbn_1_0_" << "," << "Tbn_0_0_" << "," << "Tbn_0_1_neg_" << "," << "Tbn_1_1_" << ","
+                     << "predicted_hdg_" << "," << "measured_hdg_" << ","
+                     << "HDG_INNOV_" << std::endl;
     
     // zeros state_
     state_.quat_nominal = quat(1, 0, 0, 0);
@@ -1049,15 +1073,22 @@ namespace eskf {
     scalar_t predicted_hdg, measured_hdg;
     scalar_t H_YAW[4];
     
-    quat q_nb = (q_rb.conjugate() * ev_sample_delayed_.quatNED.conjugate() * q_ne.conjugate()).conjugate();
-    q_nb.normalize();
-    //std::cout << "q_er = " << std::endl << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << std::endl;
-    //std::cout << "n2b = " << std::endl << q_nb.toRotationMatrix() << std::endl;
-    //std::cout << "e2r = " << std::endl << q.conjugate().toRotationMatrix() << std::endl;
+    //std::cout << "ev = " << " " << ev_sample_delayed_.quatNED.w() << " " << ev_sample_delayed_.quatNED.x() << " " << ev_sample_delayed_.quatNED.y() << " " << ev_sample_delayed_.quatNED.z() << std::endl;
+    
     // update transformation matrix from body to world frame
     mat3 R_to_earth = quat_to_invrotmat(state_.quat_nominal);
+    debugFileMat << "[";
+    for (size_t i = 0; i < 3; ++i) {
+      for (size_t j = 0; j < 3; ++j) {
+          debugFileMat << std::setw(10) << static_cast<double>(R_to_earth(i,j));
+          debugFileMat << "\t";
+      }
+      debugFileMat << ";" << std::endl;
+    }
+    debugFileMat << "]";
+    debugFileMat << std::endl << std::endl;
     // determine if a 321 or 312 Euler sequence is best
-	  if (fabsf(R_to_earth(2, 0)) < fabsf(R_to_earth(2, 1))) {
+	  //if (fabsf(R_to_earth(2, 0)) < fabsf(R_to_earth(2, 1))) {
       // calculate observation jacobian when we are observing the first rotation in a 321 sequence
       scalar_t t9 = q0*q3;
       scalar_t t10 = q1*q2;
@@ -1089,15 +1120,16 @@ namespace eskf {
       H_YAW[3] = t8*t14*(q0*t3+q0*t4-q0*t5+q0*t6+q1*q2*q3*2.0f)*2.0f;
 
       // rotate the magnetometer measurement into earth frame
-      vec3 euler321 = state_.quat_nominal.toRotationMatrix().eulerAngles(0, 1, 2);
+      vec3 euler321 = dcm2vec(quat2dcm(state_.quat_nominal));
       predicted_hdg = euler321(2); // we will need the predicted heading to calculate the innovation
 
       // calculate the yaw angle for a 321 sequence
 			// Expressions obtained from yaw_input_321.c produced by https://github.com/PX4/ecl/blob/master/matlab/scripts/Inertial%20Nav%20EKF/quat2yaw321.m
-			float Tbn_1_0 = 2.0f*(q_nb.w() * q_nb.z() + q_nb.x() * q_nb.y());
-			float Tbn_0_0 = sq(q_nb.w()) + sq(q_nb.x()) - sq(q_nb.y()) - sq(q_nb.z());
+			Tbn_1_0 = 2.0f*(ev_sample_delayed_.quatNED.w() * ev_sample_delayed_.quatNED.z() + ev_sample_delayed_.quatNED.x() * ev_sample_delayed_.quatNED.y());
+			Tbn_0_0 = sq(ev_sample_delayed_.quatNED.w()) + sq(ev_sample_delayed_.quatNED.x()) - sq(ev_sample_delayed_.quatNED.y()) - sq(ev_sample_delayed_.quatNED.z());
 			measured_hdg = atan2f(Tbn_1_0,Tbn_0_0);
-    } else {
+    //}
+    /* else {
       // calculate observaton jacobian when we are observing a rotation in a 312 sequence
       scalar_t t9 = q0*q3;
       scalar_t t10 = q1*q2;
@@ -1133,19 +1165,24 @@ namespace eskf {
       predicted_hdg = yaw; // we will need the predicted heading to calculate the innovation
 			// calculate the yaw angle for a 312 sequence
 			// Values from yaw_input_312.c file produced by https://github.com/PX4/ecl/blob/master/matlab/scripts/Inertial%20Nav%20EKF/quat2yaw312.m
-			float Tbn_0_1_neg = 2.0f * (q_nb.w() * q_nb.z() - q_nb.x() * q_nb.y());
-			float Tbn_1_1 = sq(q_nb.w()) - sq(q_nb.x()) + sq(q_nb.y()) - sq(q_nb.z());
+			Tbn_0_1_neg = 2.0f * (ev_sample_delayed_.quatNED.w() * ev_sample_delayed_.quatNED.z() - ev_sample_delayed_.quatNED.x() * ev_sample_delayed_.quatNED.y());
+			Tbn_1_1 = sq(ev_sample_delayed_.quatNED.w()) - sq(ev_sample_delayed_.quatNED.x()) + sq(ev_sample_delayed_.quatNED.y()) - sq(ev_sample_delayed_.quatNED.z());
 			measured_hdg = atan2f(Tbn_0_1_neg, Tbn_1_1);
-	  }
-
-    scalar_t R_YAW = sq(fmaxf(yaw_err, 1.0e-2f));
+	  }*/
+    
+    debugFileHeading << curr_time_sec << "," << H_YAW[0] << "," << H_YAW[1] << "," << H_YAW[2] << "," << H_YAW[3] << "," << measured_hdg << ",";
+    debugFileHeading << R_to_earth(0,0) << "," << R_to_earth(0,1) << "," << R_to_earth(0,2) << "," 
+                     << R_to_earth(1,0) << "," << R_to_earth(1,1) << "," << R_to_earth(1,2) << "," 
+                     << R_to_earth(2,0) << "," << R_to_earth(2,1) << "," << R_to_earth(2,2) << ",";
+    debugFileHeading << Tbn_1_0 << "," << Tbn_0_0 << "," << Tbn_0_1_neg << "," << Tbn_1_1 << ",";
+    
+    scalar_t R_YAW = sq(fmaxf(ev_sample_delayed_.angErr, 1.0e-2f));
     // Calculate innovation variance and Kalman gains, taking advantage of the fact that only the first 3 elements in H are non zero
     // calculate the innovaton variance
     scalar_t PH[4];
     scalar_t heading_innov_var = R_YAW;
     for (unsigned row = 0; row <= 3; row++) {
 		  PH[row] = 0.0f;
-      
       for (uint8_t col = 0; col <= 3; col++) {
 			  PH[row] += P_[row][col] * H_YAW[col];
 		  }
@@ -1172,11 +1209,9 @@ namespace eskf {
 
     for (uint8_t row = 0; row < k_num_states_; row++) {
       Kfusion[row] = 0.0f;
-
       for (uint8_t col = 0; col <= 3; col++) {
         Kfusion[row] += P_[row][col] * H_YAW[col];
       }
-
       Kfusion[row] *= heading_innov_var_inv;
     }
 
@@ -1185,25 +1220,28 @@ namespace eskf {
 
 	  // calculate the innovation
 	  scalar_t heading_innov = predicted_hdg - measured_hdg;
+    debugFileHeading << predicted_hdg << "," << measured_hdg << ",";
 
 	  // wrap the innovation to the interval between +-pi
 	  heading_innov = wrap_pi(heading_innov);
-
+    
+    debugFileHeading << heading_innov << std::endl;
+    
 	  // innovation test ratio
 	  scalar_t yaw_test_ratio = sq(heading_innov) / (sq(heading_innov_gate) * heading_innov_var);
 	  
     // set the vision yaw unhealthy if the test fails
 	  if (yaw_test_ratio > 1.0f) {
       printf("yaw test ratio is unhealthy\n");
-      scalar_t gate_limit = sqrtf(sq(heading_innov_gate) * heading_innov_var);
-			heading_innov = constrain(heading_innov, -gate_limit, gate_limit);
-		  //return;
-		} else {
-			// constrain the innovation to the maximum set by the gate
-			scalar_t gate_limit = sqrtf(sq(heading_innov_gate) * heading_innov_var);
-			heading_innov = constrain(heading_innov, -gate_limit, gate_limit);
-		}
-	
+      if(in_air_)
+        return;
+      else {
+        // constrain the innovation to the maximum set by the gate
+        scalar_t gate_limit = sqrtf(sq(heading_innov_gate) * heading_innov_var);
+        heading_innov = constrain(heading_innov, -gate_limit, gate_limit);
+      }
+	  }
+    
     // apply covariance correction via P_new = (I -K*H)*P
     // first calculate expression for KHP
     // then calculate P - KHP
