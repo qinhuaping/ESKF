@@ -52,7 +52,6 @@ namespace eskf {
       return q;
     }
 
-    //vec /= theta;
     vec3 tmp = vec / theta;
     return from_axis_angle(tmp, theta);
   }
@@ -280,7 +279,6 @@ namespace eskf {
     scalar_t yaw = 0.0;
     imuSample imu_init = _imu_buffer.get_newest();
     _delVel_sum += imu_init.delta_vel;
-    printf("_delVel_sum: x = %.7f, y = %.7f, z = %.7f\n", _delVel_sum(0), _delVel_sum(1), _delVel_sum(2));
     if (_delVel_sum.norm() > 0.001) {
       _delVel_sum.normalize();
       pitch = asin(_delVel_sum(0));
@@ -289,14 +287,7 @@ namespace eskf {
       return false;
     }
     // calculate initial tilt alignment
-    printf("pitch = %.7f\n", (double)pitch);
-		printf("roll = %.7f\n", (double)roll);
     state_.quat_nominal = AngleAxis<scalar_t>(yaw, vec3::UnitZ()) * AngleAxis<scalar_t>(pitch, vec3::UnitY()) * AngleAxis<scalar_t>(roll, vec3::UnitX());
-    printf("w = %.7f, x = %.7f, y = %.7f, z = %.7f\n", state_.quat_nominal.w(), state_.quat_nominal.x(), state_.quat_nominal.y(), state_.quat_nominal.z());
-    printf("gyro_bias_p_noise = %.7f\n", constrain(gyro_bias_p_noise, 0.0f, 1.0f));
-    printf("accel_bias_p_noise = %.7f\n", constrain(accel_bias_p_noise, 0.0f, 1.0f));
-    printf("gyro_noise = %.7f\n", constrain(gyro_noise, 0.0f, 1.0f));
-    printf("accel_noise = %.7f\n", constrain(accel_noise, 0.0f, 1.0f));
     initialiseCovariance();
     return true;    
   }
@@ -323,15 +314,11 @@ namespace eskf {
     _q_down_sampled = _q_down_sampled * delta_q;
     _q_down_sampled.normalize();
     
-    //debugFile2 << curr_time_sec << "," << _q_down_sampled.w() << "," << _q_down_sampled.x() << "," << _q_down_sampled.y() << "," << _q_down_sampled.z() << ",";
-    
     // rotate the accumulated delta velocity data forward each time so it is always in the updated rotation frame
     mat3 delta_R = quat2dcm(delta_q.inverse());
     _imu_down_sampled.delta_vel = delta_R * _imu_down_sampled.delta_vel;
     
-    //debugFile2 << _imu_down_sampled.delta_vel(0) << "," << _imu_down_sampled.delta_vel(1) << "," << _imu_down_sampled.delta_vel(2) << std::endl;
-    
-	  // accumulate the most recent delta velocity data at the updated rotation frame
+    // accumulate the most recent delta velocity data at the updated rotation frame
 	  // assume effective sample time is halfway between the previous and current rotation frame
 	  _imu_down_sampled.delta_vel += (_imu_sample_new.delta_vel + delta_R * _imu_sample_new.delta_vel) * 0.5f;
         
@@ -350,8 +337,6 @@ namespace eskf {
       imu.delta_vel     = _imu_down_sampled.delta_vel;
       imu.delta_ang_dt  = _imu_down_sampled.delta_ang_dt;
       imu.delta_vel_dt  = _imu_down_sampled.delta_vel_dt;
-      
-      //curr_time_sec += _imu_down_sampled.delta_ang_dt;
       
       _imu_down_sampled.delta_ang.setZero();
       _imu_down_sampled.delta_vel.setZero();
@@ -386,33 +371,12 @@ namespace eskf {
     imu_sample_new.time_us = time_us;
     
     time_last_imu_ = time_us;
-    
-    /*
-    {
-      scalar_t now = ros::Time::now().toSec();
-      static scalar_t prev = now;
-      scalar_t dt_sec = (now - prev);
-      static scalar_t t = 0.0f;
-      static int counter = 0;
-      if(t>= 1.0f) {
-        t = 0;
-        printf("HZ_PREDICT_BEFORE = %d\n", counter);
-        counter = 0;
-      } else {
-        t += dt_sec;
-        counter++;
-      }
-      prev = now;
-    }
-    */
-    
+        
     if(collect_imu(imu_sample_new)) {
       _imu_buffer.push(imu_sample_new);
       imu_updated_ = true;
-       // get the oldest data from the buffer
-     // printf("imu_sample_new.time_us = %" PRIu64 "\n", imu_sample_new.time_us); 
+      // get the oldest data from the buffer
       _imu_sample_delayed = _imu_buffer.get_oldest();
-      //printf("imu_sample_delayed.time_us = %" PRIu64 "\n", _imu_sample_delayed.time_us);
     } else {
       imu_updated_ = false;
       return;
@@ -427,25 +391,6 @@ namespace eskf {
     }
     
     if(!imu_updated_) return;
-    
-    /*
-    {
-      scalar_t now = ros::Time::now().toSec();
-      static scalar_t prev = now;
-      scalar_t dt_sec = (now - prev);
-      static scalar_t t = 0.0f;
-      static int counter = 0;
-      if(t>= 1.0f) {
-        t = 0;
-        printf("HZ_PREDICT_AFTER = %d\n", counter);
-        counter = 0;
-      } else {
-        t += dt_sec;
-        counter++;
-      }
-      prev = now;
-    }
-    */
     
     debugFile << curr_time_sec << ",";
     debugFile << _imu_sample_delayed.delta_ang(0) << "," << _imu_sample_delayed.delta_ang(1) << "," << _imu_sample_delayed.delta_ang(2) << ",";
@@ -856,25 +801,6 @@ namespace eskf {
   void ESKF::fusePosHeight() {
     if(!fuse_) return;
     
-    /*
-    {
-      scalar_t now = ros::Time::now().toSec();
-      static scalar_t prev = now;
-      scalar_t dt_sec = (now - prev);
-      static scalar_t t = 0.0f;
-      static int counter = 0;
-      if(t>= 1.0f) {
-        t = 0;
-        printf("HZ_FUSEVELPOSHIGHT = %d\n", counter);
-        counter = 0;
-      } else {
-        t += dt_sec;
-        counter++;
-      }
-      prev = now;
-    }
-    */
-    
     bool fuse_map[6] = {}; // map of booleans true when [VN,VE,VD,PN,PE,PD] observations are available
     bool innov_check_pass_map[6] = {}; // true when innovations consistency checks pass for [PN,PE,PD] observations
     scalar_t R[6] = {}; // observation variances for [VN,VE,VD,PN,PE,PD]
@@ -1043,21 +969,17 @@ namespace eskf {
       ev_yaw_ = true;
       fuse_ = true;
       ev_hgt_ = true;
-      //printf("pop ok\n");
     } else {
       ev_pos_ = false;
       ev_yaw_ = false;
       fuse_ = false;
       ev_hgt_ = false;
-      //printf("pop false\n");
-      //printf("imu_sample_delayed.time_us = %" PRIu64 "\n", _imu_sample_delayed.time_us);
     }
     if(state_.pos(2) > 1.0) {
       in_air_ = true;
     } else {
       in_air_ = false;
     }
-    //printf("_ext_vision_buffer.length() = %d\n", _ext_vision_buffer.get_length());
   }
   
   void ESKF::fuseHeading() {
@@ -1072,8 +994,6 @@ namespace eskf {
     
     scalar_t predicted_hdg, measured_hdg;
     scalar_t H_YAW[4];
-    
-    //std::cout << "ev = " << " " << ev_sample_delayed_.quatNED.w() << " " << ev_sample_delayed_.quatNED.x() << " " << ev_sample_delayed_.quatNED.y() << " " << ev_sample_delayed_.quatNED.z() << std::endl;
     
     // update transformation matrix from body to world frame
     mat3 R_to_earth = quat_to_invrotmat(state_.quat_nominal);
@@ -1429,13 +1349,11 @@ namespace eskf {
     // calculate an equivalent rotation vector from the quaternion
     scalar_t q0,q1,q2,q3;
     if (state_.quat_nominal.w() >= 0.0f) {
-      printf("first case\n");
       q0 = state_.quat_nominal.w();
       q1 = state_.quat_nominal.x();
       q2 = state_.quat_nominal.y();
       q3 = state_.quat_nominal.z();
     } else {
-      printf("second case\n");
       q0 = -state_.quat_nominal.w();
       q1 = -state_.quat_nominal.x();
       q2 = -state_.quat_nominal.y();

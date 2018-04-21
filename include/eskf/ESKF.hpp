@@ -153,11 +153,9 @@ namespace eskf {
     static constexpr int k_num_states_ = 16;
 	  typedef float scalar_t;
     typedef Eigen::Matrix<scalar_t, 3, 1> vec3; /// Vector in R3
-    typedef Eigen::Matrix<scalar_t, k_num_states_, 1> vec7; /// Vector in R3
     typedef Eigen::Matrix<scalar_t, 3, 3> mat3; /// Matrix in R3
     typedef Eigen::Quaternion<scalar_t> quat;   /// Member of S4
-    static const unsigned FILTER_UPDATE_PERIOD_MS = 12;	// ekf prediction period in milliseconds - this should ideally be an integer multiple of the IMU time delta
-    
+        
     ESKF();
 
     void predict(const vec3& w, const vec3& a, uint64_t time_us, scalar_t dt);
@@ -190,7 +188,7 @@ namespace eskf {
     vec3 to_axis_angle(const quat& q);
     mat3 quat2dcm(const quat& q);
     vec3 dcm2vec(const ESKF::mat3& dcm);
-    
+        
     /* State vector:
      * Attitude quaternion
      * Delta Angle bias - rad (X,Y,Z)
@@ -219,6 +217,10 @@ namespace eskf {
       uint64_t time_us;		///< timestamp of the measurement (uSec)
     };
     
+    bool collect_imu(imuSample& imu);
+    
+    const unsigned FILTER_UPDATE_PERIOD_MS = 12;	// ekf prediction period in milliseconds - this should ideally be an integer multiple of the IMU time delta
+    
     imuSample _imu_sample_new{};		///< imu sample capturing the newest imu data
     imuSample _imu_down_sampled{};  ///< down sampled imu data (sensor rate -> filter update rate)
     vec3 _delVel_sum; ///< summed delta velocity (m/sec)
@@ -236,7 +238,6 @@ namespace eskf {
     unsigned min_obs_interval_us{0}; // minimum time interval between observations that will guarantee data is not lost (usec)
     scalar_t _dt_ekf_avg{0.001f * FILTER_UPDATE_PERIOD_MS}; ///< average update rate of the ekf
     
-    bool collect_imu(imuSample& imu);
     bool imu_updated_;
     bool filter_initialised_;
     const int _obs_buffer_length = 9;
