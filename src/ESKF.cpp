@@ -14,13 +14,6 @@ using namespace Eigen;
 
 namespace eskf {
   
-  std::ofstream debugFile("/home/elia/Documents/eskf.csv");
-  std::ofstream debugFile2("/home/elia/Documents/eskfimu.csv");
-  std::ofstream debugFile3("/home/elia/Documents/eskffuse.csv");
-  std::ofstream debugFileCov("/home/elia/Documents/eskfcov.csv");
-  std::ofstream debugFileHeading("/home/elia/Documents/eskfheading.csv");
-  std::ofstream debugFileMat("/home/elia/Documents/eskfmat.csv");
-  
   template <typename T> inline T sq(T var) {
     return var * var;
   }
@@ -128,43 +121,6 @@ namespace eskf {
   }
   
   ESKF::ESKF() {
-    debugFile << "time_" << "," << "delta_ang0_" << "," << "delta_ang1_" << "," << "delta_ang2_" << ","
-              << "delta_vel0_" << "," << "delta_vel1_" << "," << "delta_vel2_" << ","
-						  << "gyro_bias0_" << "," << "gyro_bias1_" << "," << "gyro_bias2_" << ","
-						  << "accel_bias0_" << "," << "accel_bias1_" << "," << "accel_bias2_" << ","
-						  << "corrected_delta_ang0_" << "," << "corrected_delta_ang1_" << "," << "corrected_delta_ang2_" << ","
-						  << "corrected_delta_vel0_" << "," << "corrected_delta_vel1_" << "," << "corrected_delta_vel2_" << ","
-						  << "q_nom_0_" << "," << "q_nom_1_" << "," << "q_nom_2_" << "," << "q_nom_3_" << ","
-						  << "corrected_delta_vel_ef0_" << "," << "corrected_delta_vel_ef1_" << "," << "corrected_delta_vel_ef2_" << ","
-						  << "vel0_" << "," << "vel1_" << "," << "vel2_" << ","
-			        << "pos0_" << "," << "pos1_" << "," << "pos2_" << ","
-              << "dt_ekf_avg_" << ","
-              << "dt_" << ","
-              << "d_ang_bias_sig_" << "," << "d_vel_bias_sig_" << ","
-              << "daxVar_" << "," << "dayVar_" << "," << "dazVar_" << ","
-              << "dvxVar_" << "," << "dvyVar_" << "," << "dvzVar_" << ","
-              << "SF_0_" << "," << "SF_1_" << "," << "SF_2_" << "," << "SF_3_" << "," << "SF_4_" << "," << "SF_5_" << "," << "SF_6_" << "," << "SF_7_" << "," << "SF_8_" << "," << "SF_9_" << ","
-              << "SF_10_" << "," << "SF_11_" << "," << "SF_12_" << "," << "SF_13_" << "," << "SF_14_" << "," << "SF_15_" << "," << "SF_16_" << "," << "SF_17_" << "," << "SF_18_" << "," << "SF_19_" << "," << "SF_20_" << ","
-              << "SG_0_" << "," << "SG_1_" << "," << "SG_2_" << "," << "SG_3_" << "," << "SG_4_" << "," << "SG_5_" << "," << "SG_6_" << "," << "SG_7_" << ","
-              << "SQ_0_" << "," << "SQ_1_" << "," << "SQ_2_" << "," << "SQ_3_" << "," << "SQ_4_" << "," << "SQ_5_" << "," << "SQ_6_" << "," << "SQ_7_" << "," << "SQ_8_" << "," << "SQ_9_" << "," << "SQ_10_" << ","
-              << "SPP_0_" << "," << "SPP_1_" << "," << "SPP_2_" << "," << "SPP_3_" << "," << "SPP_4_" << "," << "SPP_5_" << "," << "SPP_6_" << "," << "SPP_7_" << "," << "SPP_8_" << "," << "SPP_9_" << "," << "SPP_10_" << std::endl;
-    
-    debugFile3 << "time_" << "," << "R_0_" << "," << "R_1_" << "," << "R_2_" << "," << "R_3_" << "," << "R_4_" << "," << "R_5_" << ","
-              << "gate_size_0_" << "," << "gate_size_1_" << "," << "gate_size_2_" << "," << "gate_size_3_" << "," << "gate_size_4_" << "," << "gate_size_5_" << ","
-              << "vel_pos_innov_0_" << "," << "vel_pos_innov_1_" << "," << "vel_pos_innov_2_" << "," << "vel_pos_innov_3_" << "," << "vel_pos_innov_4_" << "," << "vel_pos_innov_5_" << ","
-              << "last_known_posNED_0_" << "," << "last_known_posNED_1_" << "," << "last_known_posNED_2_" << ","
-              << "vel_pos_innov_var_0_" << "," << "vel_pos_innov_var_1_" << "," << "vel_pos_innov_var_2_" << "," << "vel_pos_innov_var_3_" << "," << "vel_pos_innov_var_4_" << "," << "vel_pos_innov_var_5_" << ","
-              << "vel_pos_test_ratio_0_" << "," << "vel_pos_test_ratio_1_" << "," << "vel_pos_test_ratio_2_" << "," << "vel_pos_test_ratio_3_" << "," << "vel_pos_test_ratio_4_" << "," << "vel_pos_test_ratio_5_" << std::endl;  
-    
-    debugFile2 << "time_" << "," << "q_down_sampled_0_" << "," << "q_down_sampled_1_" << "," << "q_down_sampled_2_" << "," << "q_down_sampled_3_" << ",";
-    debugFile2 << "delta_vel_0_" << "," << "delta_vel_1_" << "," << "delta_vel_2_" << std::endl;
-    
-    debugFileHeading << "time_" << "," << "H_YAW_0_" << "," << "H_YAW_1_" << "," << "H_YAW_2_" << "," << "H_YAW_3_" << "," << "HDG_" << ","
-                     << "R_00_" << "," << "R_01_" << "," << "R_02_" << "," << "R_10_" << "," << "R_11_" << "," << "R_12_" << "," << "R_20_" << "," << "R_21_" << "," << "R_22_" << ","
-                     << "Tbn_1_0_" << "," << "Tbn_0_0_" << "," << "Tbn_0_1_neg_" << "," << "Tbn_1_1_" << ","
-                     << "predicted_hdg_" << "," << "measured_hdg_" << ","
-                     << "HDG_INNOV_" << std::endl;
-    
     // zeros state_
     state_.quat_nominal = quat(1, 0, 0, 0);
     state_.vel = vec3(0, 0, 0);
@@ -259,18 +215,6 @@ namespace eskf {
 	  P_[10][10] = sq(switch_on_gyro_bias * dt);
 	  P_[11][11] = P_[10][10];
 	  P_[12][12] = P_[10][10];
-	      
-    debugFileCov << "P0" << std::endl;
-    debugFileCov << "[";
-    for (size_t i = 0; i < k_num_states_; ++i) {
-      for (size_t j = 0; j < k_num_states_; ++j) {
-          debugFileCov << std::setw(10) << static_cast<double>(P_[i][j]);
-          debugFileCov << "\t";
-      }
-      debugFileCov << ";" << std::endl;
-    }
-    debugFileCov << "]";
-    debugFileCov << std::endl << std::endl;
   }
   
   bool ESKF::initializeFilter() {
@@ -392,17 +336,9 @@ namespace eskf {
     
     if(!imu_updated_) return;
     
-    debugFile << curr_time_sec << ",";
-    debugFile << _imu_sample_delayed.delta_ang(0) << "," << _imu_sample_delayed.delta_ang(1) << "," << _imu_sample_delayed.delta_ang(2) << ",";
-    debugFile << _imu_sample_delayed.delta_vel(0) << "," << _imu_sample_delayed.delta_vel(1) << "," << _imu_sample_delayed.delta_vel(2) << ",";
-    debugFile << state_.gyro_bias(0) << "," << state_.gyro_bias(1) << "," << state_.gyro_bias(2) << ",";
-    debugFile << state_.accel_bias(0) << "," << state_.accel_bias(1) << "," << state_.accel_bias(2) << ",";
-        
     // apply imu bias corrections
     vec3 corrected_delta_ang = _imu_sample_delayed.delta_ang - state_.gyro_bias;
     vec3 corrected_delta_vel = _imu_sample_delayed.delta_vel - state_.accel_bias; 
-    debugFile << corrected_delta_ang(0) << "," << corrected_delta_ang(1) << "," << corrected_delta_ang(2) << ",";
-	  debugFile << corrected_delta_vel(0) << "," << corrected_delta_vel(1) << "," << corrected_delta_vel(2) << ",";
     
     // convert the delta angle to a delta quaternion
     quat dq;
@@ -411,8 +347,7 @@ namespace eskf {
     state_.quat_nominal = state_.quat_nominal * dq;
     // quaternions must be normalised whenever they are modified
     state_.quat_nominal.normalize();
-    debugFile << state_.quat_nominal.w() << "," << state_.quat_nominal.x() << "," << state_.quat_nominal.y() << "," << state_.quat_nominal.z() << ",";
-    
+        
     // save the previous value of velocity so we can use trapezoidal integration
     vec3 vel_last = state_.vel;
     
@@ -421,19 +356,16 @@ namespace eskf {
     
     // Calculate an earth frame delta velocity
     vec3 corrected_delta_vel_ef = R_to_earth * corrected_delta_vel;
-    debugFile << corrected_delta_vel_ef(0) << "," << corrected_delta_vel_ef(1) << "," << corrected_delta_vel_ef(2) << ",";
-    
+        
     // calculate the increment in velocity using the current orientation
     state_.vel += corrected_delta_vel_ef;
 
     // compensate for acceleration due to gravity
     state_.vel(2) += kOneG * _imu_sample_delayed.delta_vel_dt;
-    debugFile << state_.vel(0) << "," << state_.vel(1) << "," << state_.vel(2) << ",";
-    
+        
     // predict position states via trapezoidal integration of velocity
     state_.pos += (vel_last + state_.vel) * _imu_sample_delayed.delta_vel_dt * 0.5f;
-    debugFile << state_.pos(0) << "," << state_.pos(1) << "," << state_.pos(2) << ",";
-    
+        
     constrainStates();
         
     curr_time_sec += (double)_imu_sample_delayed.delta_vel_dt;
@@ -444,7 +376,7 @@ namespace eskf {
 	  // filter and limit input between -50% and +100% of nominal value
 	  input = constrain(input, 0.0005f * (scalar_t)(FILTER_UPDATE_PERIOD_MS), 0.002f * (scalar_t)(FILTER_UPDATE_PERIOD_MS));
 	  _dt_ekf_avg = 0.99f * _dt_ekf_avg + 0.01f * input;
-    debugFile << _dt_ekf_avg << ",";
+    
     predictCovariance();
     fusePosHeight();
     controlHeightSensorTimeouts();
@@ -480,16 +412,12 @@ namespace eskf {
     
     float dt = constrain(_imu_sample_delayed.delta_ang_dt, 0.0005f * (scalar_t)(FILTER_UPDATE_PERIOD_MS), 0.002f * (scalar_t)(FILTER_UPDATE_PERIOD_MS));
     
-    debugFile << dt << ",";
-    
     // convert rate of change of rate gyro bias (rad/s**2) as specified by the parameter to an expected change in delta angle (rad) since the last update
     scalar_t d_ang_bias_sig = dt * dt * constrain(gyro_bias_p_noise, 0.0f, 1.0f);
 
     // convert rate of change of accelerometer bias (m/s**3) as specified by the parameter to an expected change in delta velocity (m/s) since the last update
     scalar_t d_vel_bias_sig = dt * dt * constrain(accel_bias_p_noise, 0.0f, 1.0f);
         
-    debugFile << d_ang_bias_sig << "," << d_vel_bias_sig << ",";
-            
     // Construct the process noise variance diagonal for those states with a stationary process model
     // These are kinematic states and their error growth is controlled separately by the IMU noise variances
     for (unsigned i = 0; i <= 9; i++) {
@@ -509,9 +437,6 @@ namespace eskf {
     daxVar = dayVar = dazVar = sq(dt * gyro_noise); // gyro prediction variance TODO get variance from sensor
     accel_noise = constrain(accel_noise, 0.0f, 1.0f);
     dvxVar = dvyVar = dvzVar = sq(dt * accel_noise); //accel prediction variance TODO get variance from sensor
-    
-    debugFile << daxVar << "," << dayVar << "," << dazVar << ",";
-    debugFile << dvxVar << "," << dvyVar << "," << dvzVar << ",";
     
     // intermediate calculations
     scalar_t SF[21];
@@ -537,9 +462,6 @@ namespace eskf {
     SF[19] = sq(q1);
     SF[20] = sq(q0);
     
-    debugFile << SF[0] << "," << SF[1] << "," << SF[2] << "," << SF[3] << "," << SF[4] << "," << SF[5] << "," << SF[6] << "," << SF[7]<< "," << SF[8]<< "," << SF[9] << ","
-    << SF[10] << "," << SF[11] << "," << SF[12] << "," << SF[13] << "," << SF[14] << "," << SF[15] << "," << SF[16] << "," << SF[17]<< "," << SF[18]<< "," << SF[19] << "," << SF[20] << ",";
-      
     scalar_t SG[8];
     SG[0] = q0/2;
     SG[1] = sq(q3);
@@ -550,8 +472,6 @@ namespace eskf {
     SG[6] = 2*q1*q3;
     SG[7] = 2*q1*q2;
     
-    debugFile << SG[0] << "," << SG[1] << "," << SG[2] << "," << SG[3] << "," << SG[4] << "," << SG[5] << "," << SG[6] << "," << SG[7] << ",";
-        
     scalar_t SQ[11];
     SQ[0] = dvzVar*(SG[5] - 2*q0*q1)*(SG[1] - SG[2] - SG[3] + SG[4]) - dvyVar*(SG[5] + 2*q0*q1)*(SG[1] - SG[2] + SG[3] - SG[4]) + dvxVar*(SG[6] - 2*q0*q2)*(SG[7] + 2*q0*q3);
     SQ[1] = dvzVar*(SG[6] + 2*q0*q2)*(SG[1] - SG[2] - SG[3] + SG[4]) - dvxVar*(SG[6] - 2*q0*q2)*(SG[1] + SG[2] - SG[3] - SG[4]) + dvyVar*(SG[5] + 2*q0*q1)*(SG[7] - 2*q0*q3);
@@ -565,8 +485,6 @@ namespace eskf {
     SQ[9] = sq(SG[0]);
     SQ[10] = sq(q1);
     
-    debugFile << SQ[0] << "," << SQ[1] << "," << SQ[2] << "," << SQ[3] << "," << SQ[4] << "," << SQ[5] << "," << SQ[6] << "," << SQ[7] << "," << SQ[8] << "," << SQ[9] << "," << SQ[10] << ",";
-    
     scalar_t SPP[11];
     SPP[0] = SF[12] + SF[13] - 2*q2*SF[2];
     SPP[1] = SF[17] - SF[18] - SF[19] + SF[20];
@@ -579,8 +497,6 @@ namespace eskf {
     SPP[8] = 2*q0*q3 + 2*q1*q2;
     SPP[9] = 2*q0*q2 + 2*q1*q3;
     SPP[10] = SF[16];
-    
-    debugFile << SPP[0] << "," << SPP[1] << "," << SPP[2] << "," << SPP[3] << "," << SPP[4] << "," << SPP[5] << "," << SPP[6] << "," << SPP[7] << "," << SPP[8] << "," << SPP[9] << "," << SPP[10] << std::endl;
     
     // covariance update
     // calculate variances and upper diagonal covariances for quaternion, velocity, position and gyro bias states
@@ -709,20 +625,6 @@ namespace eskf {
     }
     
     fixCovarianceErrors();
-    
-    static int count = 0;
-    debugFileCov << count << std::endl;
-    debugFileCov << "[";
-    for (size_t i = 0; i < k_num_states_; ++i) {
-      for (size_t j = 0; j < k_num_states_; ++j) {
-          debugFileCov << std::setw(10) << static_cast<double>(P_[i][j]);
-          debugFileCov << "\t";
-      }
-      debugFileCov << ";" << std::endl;
-    }
-    debugFileCov << "]";
-    debugFileCov << std::endl << std::endl;
-    count++;
   }
   
   void ESKF::controlHeightSensorTimeouts() {
@@ -753,7 +655,6 @@ namespace eskf {
         if (reset_to_ev) {
           // request a reset
           reset_height = true;
-          printf("EKF ev hgt timeout - reset to ev hgt\n");
         } else {
           // we have nothing to reset to
           reset_height = false;
@@ -862,13 +763,7 @@ namespace eskf {
       // innovation gate size
       gate_size[5] = fmaxf(5.0f, 1.0f);
     }
-    
-    debugFile3 << curr_time_sec << ",";
-    debugFile3 << R[0] << "," << R[1] << "," << R[2] << "," << R[3] << "," << R[4] << "," << R[5] << ","; 
-    debugFile3 << gate_size[0] << "," << gate_size[1] << "," << gate_size[2] << "," << gate_size[3] << "," << gate_size[4] << "," << gate_size[5] << ",";
-    debugFile3 << vel_pos_innov_[0] << "," << vel_pos_innov_[1] << "," << vel_pos_innov_[2] << "," << vel_pos_innov_[3] << "," << vel_pos_innov_[4] << "," << vel_pos_innov_[5] << ",";
-    debugFile3 << last_known_posNED_(0) << "," << last_known_posNED_(1) << "," << last_known_posNED_(2) << ",";
-        
+
     // calculate innovation test ratios
     for (unsigned obs_index = 0; obs_index < 6; obs_index++) {
       if (fuse_map[obs_index]) {
@@ -879,9 +774,6 @@ namespace eskf {
         vel_pos_test_ratio_[obs_index] = sq(vel_pos_innov_[obs_index]) / (sq(gate_size[obs_index]) * vel_pos_innov_var_[obs_index]);
       }
     }
-    
-    debugFile3 << vel_pos_innov_var_[0] << "," << vel_pos_innov_var_[1] << "," << vel_pos_innov_var_[2] << "," << vel_pos_innov_var_[3] << "," << vel_pos_innov_var_[4] << "," << vel_pos_innov_var_[5] << ",";
-    debugFile3 << vel_pos_test_ratio_[0] << "," << vel_pos_test_ratio_[1] << "," << vel_pos_test_ratio_[2] << "," << vel_pos_test_ratio_[3] << "," << vel_pos_test_ratio_[4] << "," << vel_pos_test_ratio_[5] << std::endl;
     
     // check position, velocity and height innovations
     // treat 2D position and height as separate sensors
@@ -961,8 +853,6 @@ namespace eskf {
       time_last_ext_vision = time_usec;
        // push to buffer
       _ext_vision_buffer.push(ev_sample_new);
-      //printf("push ok\n");
-      //printf("ev_sample_new.time_us = %" PRIu64 "\n", ev_sample_new.time_us);
     }
     if(_ext_vision_buffer.pop_first_older_than(_imu_sample_delayed.time_us, &ev_sample_delayed_)) {
       ev_pos_ = true;
@@ -997,18 +887,8 @@ namespace eskf {
     
     // update transformation matrix from body to world frame
     mat3 R_to_earth = quat_to_invrotmat(state_.quat_nominal);
-    debugFileMat << "[";
-    for (size_t i = 0; i < 3; ++i) {
-      for (size_t j = 0; j < 3; ++j) {
-          debugFileMat << std::setw(10) << static_cast<double>(R_to_earth(i,j));
-          debugFileMat << "\t";
-      }
-      debugFileMat << ";" << std::endl;
-    }
-    debugFileMat << "]";
-    debugFileMat << std::endl << std::endl;
     // determine if a 321 or 312 Euler sequence is best
-	  //if (fabsf(R_to_earth(2, 0)) < fabsf(R_to_earth(2, 1))) {
+	  if (fabsf(R_to_earth(2, 0)) < fabsf(R_to_earth(2, 1))) {
       // calculate observation jacobian when we are observing the first rotation in a 321 sequence
       scalar_t t9 = q0*q3;
       scalar_t t10 = q1*q2;
@@ -1048,8 +928,8 @@ namespace eskf {
 			Tbn_1_0 = 2.0f*(ev_sample_delayed_.quatNED.w() * ev_sample_delayed_.quatNED.z() + ev_sample_delayed_.quatNED.x() * ev_sample_delayed_.quatNED.y());
 			Tbn_0_0 = sq(ev_sample_delayed_.quatNED.w()) + sq(ev_sample_delayed_.quatNED.x()) - sq(ev_sample_delayed_.quatNED.y()) - sq(ev_sample_delayed_.quatNED.z());
 			measured_hdg = atan2f(Tbn_1_0,Tbn_0_0);
-    //}
-    /* else {
+    }
+    else {
       // calculate observaton jacobian when we are observing a rotation in a 312 sequence
       scalar_t t9 = q0*q3;
       scalar_t t10 = q1*q2;
@@ -1088,13 +968,7 @@ namespace eskf {
 			Tbn_0_1_neg = 2.0f * (ev_sample_delayed_.quatNED.w() * ev_sample_delayed_.quatNED.z() - ev_sample_delayed_.quatNED.x() * ev_sample_delayed_.quatNED.y());
 			Tbn_1_1 = sq(ev_sample_delayed_.quatNED.w()) - sq(ev_sample_delayed_.quatNED.x()) + sq(ev_sample_delayed_.quatNED.y()) - sq(ev_sample_delayed_.quatNED.z());
 			measured_hdg = atan2f(Tbn_0_1_neg, Tbn_1_1);
-	  }*/
-    
-    debugFileHeading << curr_time_sec << "," << H_YAW[0] << "," << H_YAW[1] << "," << H_YAW[2] << "," << H_YAW[3] << "," << measured_hdg << ",";
-    debugFileHeading << R_to_earth(0,0) << "," << R_to_earth(0,1) << "," << R_to_earth(0,2) << "," 
-                     << R_to_earth(1,0) << "," << R_to_earth(1,1) << "," << R_to_earth(1,2) << "," 
-                     << R_to_earth(2,0) << "," << R_to_earth(2,1) << "," << R_to_earth(2,2) << ",";
-    debugFileHeading << Tbn_1_0 << "," << Tbn_0_0 << "," << Tbn_0_1_neg << "," << Tbn_1_1 << ",";
+	  }
     
     scalar_t R_YAW = sq(fmaxf(ev_sample_delayed_.angErr, 1.0e-2f));
     // Calculate innovation variance and Kalman gains, taking advantage of the fact that only the first 3 elements in H are non zero
@@ -1119,7 +993,6 @@ namespace eskf {
       // the innovation variance contribution from the state covariances is negative which means the covariance matrix is badly conditioned
       // we reinitialise the covariance matrix and abort this fusion step
       initialiseCovariance();
-      printf("EKF mag yaw fusion numerical error - covariance reset\n");
       return;
     }
 
@@ -1140,12 +1013,9 @@ namespace eskf {
 
 	  // calculate the innovation
 	  scalar_t heading_innov = predicted_hdg - measured_hdg;
-    debugFileHeading << predicted_hdg << "," << measured_hdg << ",";
 
 	  // wrap the innovation to the interval between +-pi
 	  heading_innov = wrap_pi(heading_innov);
-    
-    debugFileHeading << heading_innov << std::endl;
     
 	  // innovation test ratio
 	  scalar_t yaw_test_ratio = sq(heading_innov) / (sq(heading_innov_gate) * heading_innov_var);
