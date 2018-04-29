@@ -1633,6 +1633,10 @@ ESKF::vec3 ESKF::getRPY(const mat3 &R)
 	return rpy;
 }
 
+ESKF::vec3 ESKF::getXYZ() {
+	return state_.pos;
+}
+
 const ESKF::quat &ESKF::getQuat() const
 {
 	return state_.quat_nominal;
