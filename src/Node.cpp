@@ -41,7 +41,7 @@ void Node::inputCallback(const sensor_msgs::ImuConstPtr &imuMsg)
 		const eskf::ESKF::quat n2b = eskf_.getQuat();
 		const vec3 orientation = eskf_.getRPY(n2b.matrix());
 		const vec3 position = eskf_.getXYZ();
-		
+
 		sensor_msgs::Imu imu = *imuMsg;
 		imu.header.seq = 0;
 
@@ -53,7 +53,7 @@ void Node::inputCallback(const sensor_msgs::ImuConstPtr &imuMsg)
 		rpy.vector.z = orientation[2];
 		// publish our topics
 		pubRPY_.publish(rpy);
-		
+
 		geometry_msgs::Vector3Stamped xyz;
 		xyz.header = imu.header;
 		xyz.vector.x = position[0];
