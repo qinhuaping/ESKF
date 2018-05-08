@@ -1601,38 +1601,6 @@ void ESKF::fuse(scalar_t *K, scalar_t innovation)
 	}
 }
 
-ESKF::vec3 ESKF::getRPY(const mat3 &R)
-{
-	vec3 rpy;
-	scalar_t sth = -R(2, 0);
-
-	if (sth > 1) {
-		sth = 1;
-
-	} else if (sth < -1) {
-		sth = -1;
-	}
-
-	const scalar_t theta = std::asin(sth);
-	const scalar_t cth = std::sqrt(1 - sth * sth);
-
-	scalar_t phi, psi;
-
-	if (cth < static_cast<scalar_t>(1.0e-6)) {
-		phi = std::atan2(R(0, 1), R(1, 1));
-		psi = 0;
-
-	} else {
-		phi = std::atan2(R(2, 1), R(2, 2));
-		psi = std::atan2(R(1, 0), R(0, 0));
-	}
-
-	rpy[0] = phi;    //  x, [-pi,pi]
-	rpy[1] = theta;  //  y, [-pi/2,pi/2]
-	rpy[2] = psi;    //  z, [-pi,pi]
-	return rpy;
-}
-
 ESKF::vec3 ESKF::getXYZ()
 {
 	return state_.pos;

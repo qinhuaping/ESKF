@@ -20,8 +20,7 @@ namespace eskf {
     ros::NodeHandle nh_;
     
     // publishers
-    ros::Publisher pubRPY_;
-    ros::Publisher pubXYZ_;
+    ros::Publisher pubPose_;
     
     //  subsribers
     ros::Subscriber subImu_;

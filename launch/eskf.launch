@@ -6,7 +6,7 @@
   <arg name="imu_topic" default="/mavros/imu/data"/>
 
   <!-- POSE topic to use -->
-  <arg name="pose_topic" default="/mavros/local_position/pose"/>
+  <arg name="pose_topic" default="/svo/pose"/>
   
   <node pkg="eskf" name="$(arg eskf_node)" type="eskf" output="screen">
     <remap from="~imu" to="$(arg imu_topic)"/>
