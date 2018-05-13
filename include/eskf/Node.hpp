@@ -21,6 +21,7 @@ namespace eskf {
     
     // publishers
     ros::Publisher pubRPY_;
+    ros::Publisher pubXYZ_;
     
     //  subsribers
     ros::Subscriber subImu_;

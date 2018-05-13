@@ -166,6 +166,8 @@ namespace eskf {
 
     vec3 getRPY(const mat3& R);
 
+    vec3 getXYZ();
+
   private:
     
     void constrainStates();

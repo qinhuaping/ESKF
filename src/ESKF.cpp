@@ -1209,11 +1209,15 @@ namespace eskf {
     rpy[2] = psi;    //  z, [-pi,pi]
     return rpy;
   }
-    
+
   const ESKF::quat& ESKF::getQuat() const { 
     return state_.quat_nominal; 
   }
-  
+
+  ESKF::vec3 ESKF::getXYZ() {
+    return state_.pos;
+  }
+
   // initialise the quaternion covariances using rotation vector variances
   void ESKF::initialiseQuatCovariances(const vec3& rot_vec_var) {
     // calculate an equivalent rotation vector from the quaternion

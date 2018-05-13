@@ -12,6 +12,7 @@ namespace eskf {
     subPOSE_ = nh_.subscribe("pose", 1, &Node::measurementCallback, this);
     
     pubRPY_ = nh_.advertise<geometry_msgs::Vector3Stamped>("rpy", 1);
+    pubXYZ_ = nh_.advertise<geometry_msgs::Vector3Stamped>("xyz", 1);
   }
 
   void Node::inputCallback(const sensor_msgs::ImuConstPtr& imuMsg) {
@@ -35,6 +36,7 @@ namespace eskf {
       
       const eskf::ESKF::quat n2b = eskf_.getQuat();
       const vec3 orientation = eskf_.getRPY(n2b.matrix());
+      const vec3 position = eskf_.getXYZ();
       
       sensor_msgs::Imu imu = *imuMsg;
       imu.header.seq = 0;
@@ -47,6 +49,15 @@ namespace eskf {
       rpy.vector.z = orientation[2];
       // publish our topics
       pubRPY_.publish(rpy);
+
+      // x-y-z (m)
+      geometry_msgs::Vector3Stamped xyz;
+      xyz.header = imu.header;
+      xyz.vector.x = position[0];
+      xyz.vector.y = position[1];
+      xyz.vector.z = position[2];
+      // publish our topics
+      pubXYZ_.publish(xyz);
     }
     prevStampIMU_ = imuMsg->header.stamp;
   }
