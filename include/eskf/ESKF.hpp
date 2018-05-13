@@ -6,9 +6,22 @@
 #include <ros/time.h>
 
 #define EV_MAX_INTERVAL		2e5	///< Maximum allowable time interval between external vision system measurements (uSec)
+#define GPS_MAX_INTERVAL	1e6	///< Maximum allowable time interval between external gps system measurements (uSec)
 
 namespace eskf {
 
+  typedef float scalar_t;
+  typedef Eigen::Matrix<scalar_t, 3, 1> vec3; /// Vector in R3
+  typedef Eigen::Matrix<scalar_t, 3, 3> mat3; /// Matrix in R3
+  typedef Eigen::Quaternion<scalar_t> quat;   /// Member of S4
+  
+  mat3 quat_to_invrotmat(const quat &q);
+  quat from_axis_angle(vec3 vec);
+  quat from_axis_angle(const vec3 &axis, scalar_t theta);
+  vec3 to_axis_angle(const quat& q);
+  mat3 quat2dcm(const quat& q);
+  vec3 dcm2vec(const mat3& dcm);
+  
   template <typename data_type>
   class RingBuffer {
   public:
@@ -151,23 +164,20 @@ namespace eskf {
   class ESKF {
   public:
     static constexpr int k_num_states_ = 16;
-	  typedef float scalar_t;
-    typedef Eigen::Matrix<scalar_t, 3, 1> vec3; /// Vector in R3
-    typedef Eigen::Matrix<scalar_t, 3, 3> mat3; /// Matrix in R3
-    typedef Eigen::Quaternion<scalar_t> quat;   /// Member of S4
-        
+	      
     ESKF();
-
-    void predict(const vec3& w, const vec3& a, uint64_t time_us, scalar_t dt);
-
-    void update(const quat& q, const vec3& p, uint64_t time_us, scalar_t dt);
+    
+    void run(const vec3& w, const vec3& a, uint64_t time_us, scalar_t dt);
+    
+    void updateVision(const quat& q, const vec3& p, uint64_t time_us, scalar_t dt);
+    void updateGps(const vec3& v, const vec3& p, uint64_t time_us, scalar_t dt);
     
     const quat& getQuat() const;
-
-    vec3 getXYZ();
+    const vec3& getXYZ() const;
     
   private:
     
+    void predict(const vec3& w, const vec3& a, uint64_t time_us, scalar_t dt);
     void constrainStates();
     bool initializeFilter();
     void initialiseQuatCovariances(const vec3& rot_vec_var);
@@ -178,16 +188,10 @@ namespace eskf {
     void fixCovarianceErrors();
     void initialiseCovariance();
     void predictCovariance();
-    void fusePosHeight();
+    void fuseVelPosHeight();
     void resetHeight();
     void fuseHeading();
     void controlHeightSensorTimeouts();
-    mat3 quat_to_invrotmat(const quat &q);
-    quat from_axis_angle(vec3 vec);
-    quat from_axis_angle(const vec3 &axis, scalar_t theta);
-    vec3 to_axis_angle(const quat& q);
-    mat3 quat2dcm(const quat& q);
-    vec3 dcm2vec(const ESKF::mat3& dcm);
         
     /* State vector:
      * Attitude quaternion
@@ -265,8 +269,8 @@ namespace eskf {
 	  scalar_t pos_noise{0.5f};		///< minimum allowed observation noise for position fusion (m)
 	  scalar_t baro_noise{2.0f};			///< observation noise for barometric height fusion (m)
     scalar_t vel_pos_test_ratio_[6] {};  // velocity and position innovation consistency check ratios
-    scalar_t vel_pos_innov_[6] {};	///< ROS velocity and position innovations: (m**2)
-	  scalar_t vel_pos_innov_var_[6] {};	///< ROS velocity and position innovation variances: (m**2)
+    scalar_t vel_pos_innov_[6] {};	///< velocity and position innovations: (m**2)
+	  scalar_t vel_pos_innov_var_[6] {};	///< velocity and position innovation variances: (m**2)
     
     scalar_t heading_innov_gate{2.6f};		///< heading fusion innovation consistency gate size (STD)
     
@@ -275,20 +279,14 @@ namespace eskf {
     quat q_ne; ///< rotation from NED to ENU
     quat q_rb; ///< rotation from ROS body to PX4 body
     
-    bool fuse_pos_ = true;
-	  bool fuse_height_ = true;
-    bool ev_pos_ = false;
-    bool ev_yaw_ = false;
-    bool ev_hgt_ = false;
-    bool fuse_ = true;
-    bool in_air_ = false;
+    bool fuse_pos_ = true; /// < true when at least one type of observation for XY is available 
+	  bool fuse_height_ = true; /// < true when at least one type of observation for Z is available
+    bool ev_pos_ = false; /// < true when horizontal XY vision observations are used
+    bool ev_yaw_ = false; /// < true when vision yaw observation is used
+    bool ev_hgt_ = false; /// < true when vertical Z vision observation is used
+    bool in_air_ = false; /// < true when aircraft is above ground
     vec3 last_known_posNED_;
-    double curr_time_sec = 0.0; 
     scalar_t hgt_reset_lim{0.0f};
-    scalar_t Tbn_1_0 = 0;
-    scalar_t Tbn_0_0 = 0;
-    scalar_t Tbn_0_1_neg = 0; 
-    scalar_t Tbn_1_1 = 0;
   };
 }
 
