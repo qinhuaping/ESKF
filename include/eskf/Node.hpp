@@ -22,20 +22,21 @@ namespace eskf {
     // publishers
     ros::Publisher pubRPY_;
     ros::Publisher pubXYZ_;
+    ros::Publisher pubPose_;
     
     //  subsribers
     ros::Subscriber subImu_;
-    ros::Subscriber subPOSE_;
+    ros::Subscriber subVisionPose_;
     
     // implementation
     eskf::ESKF eskf_;
     ros::Time prevStampIMU_;
-    ros::Time prevStampPOSE_;
+    ros::Time prevStampVisionPose_;
     bool init_;
     
     //  callbacks
     void inputCallback(const sensor_msgs::ImuConstPtr&);
-    void measurementCallback(const geometry_msgs::PoseStampedConstPtr&);
+    void visionCallback(const geometry_msgs::PoseStampedConstPtr&);
   };
 } //  namespace eskf
 
