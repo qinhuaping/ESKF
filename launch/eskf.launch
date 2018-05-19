@@ -5,16 +5,12 @@
   <!-- IMU topic to use -->
   <arg name="imu_topic" default="/mavros/imu/data"/>
 
-  <!-- VISION POSE topic to use -->
-  <arg name="vision_pose_topic" default="/mavros/vision_pose/pose"/>
-  
-  <!-- GPS POSE topic to use -->
-  <arg name="gps_pose_topic" default="/mavros/global_position/local"/>
+  <!-- VISION topic to use -->
+  <arg name="vision_topic" default="/mavros/local_position/pose"/>
   
   <node pkg="eskf" name="$(arg eskf_node)" type="eskf" output="screen">
     <remap from="~imu" to="$(arg imu_topic)"/>
-    <remap from="~vision_pose" to="$(arg vision_pose_topic)"/>
-    <remap from="~gps_pose" to="$(arg gps_pose_topic)"/>
+    <remap from="~vision_pose" to="$(arg vision_topic)"/>
   </node>
 
 </launch>
