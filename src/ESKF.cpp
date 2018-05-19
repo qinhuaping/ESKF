@@ -3,38 +3,33 @@
 #endif
 
 #include "ESKF.hpp"
-#include <Eigen/Cholesky>
-#include <iostream>
 #include <cmath>
-#include <fstream>
-#include <iomanip>
-#include <inttypes.h>
 
 using namespace Eigen;
 
 namespace eskf {
-  
+
   template <typename T> inline T sq(T var) {
     return var * var;
   }
-	
+
   template<typename Scalar>
   static inline constexpr const Scalar &constrain(const Scalar &val, const Scalar &min_val, const Scalar &max_val) {
     return (val < min_val) ? min_val : ((val > max_val) ? max_val : val);
   }
-  
+
   template<typename Type>
   Type wrap_pi(Type x) {
-      while (x >= Type(M_PI)) {
-          x -= Type(2.0 * M_PI);
-      }
+    while (x >= Type(M_PI)) {
+      x -= Type(2.0 * M_PI);
+    }
 
-      while (x < Type(-M_PI)) {
-          x += Type(2.0 * M_PI);
-      }
-      return x;
+    while (x < Type(-M_PI)) {
+      x += Type(2.0 * M_PI);
+    }
+    return x;
   }
-  
+
   quat ESKF::from_axis_angle(vec3 vec) {
     quat q;
     scalar_t theta = vec.norm();
@@ -66,7 +61,7 @@ namespace eskf {
     
     return q;
   }
-  
+
   vec3 ESKF::to_axis_angle(const quat& q) {
     scalar_t axis_magnitude = scalar_t(sqrt(q.x() * q.x() + q.y() * q.y() + q.z() * q.z()));
     vec3 vec;
@@ -103,7 +98,7 @@ namespace eskf {
     dcm(2, 2) = aSq - bSq - cSq + dSq;
     return dcm;
   }
-  
+
   vec3 ESKF::dcm2vec(const mat3& dcm) {
     scalar_t phi_val = atan2(dcm(2, 1), dcm(2, 2));
     scalar_t theta_val = asin(-dcm(2, 0));
@@ -119,7 +114,7 @@ namespace eskf {
     }
     return vec3(phi_val, theta_val, psi_val);
   }
-  
+
   ESKF::ESKF() {
     // zeros state_
     state_.quat_nominal = quat(1, 0, 0, 0);
@@ -127,31 +122,19 @@ namespace eskf {
     state_.pos = vec3(0, 0, 0);
     state_.gyro_bias = vec3(0, 0, 0);
     state_.accel_bias = vec3(0, 0, 0);
-        
+    
     //  zeros P_
     for (unsigned i = 0; i < k_num_states_; i++) {
       for (unsigned j = 0; j < k_num_states_; j++) {
         P_[i][j] = 0.0f;
       }
-	  }
-	
-    rosb2px4b(0,0) = 1.0;
-    rosb2px4b(0,1) = 0.0;
-    rosb2px4b(0,2) = 0.0;
-    
-    rosb2px4b(1,0) =  0.0;
-    rosb2px4b(1,1) = -1.0;
-    rosb2px4b(1,2) =  0.0;
-    
-    rosb2px4b(2,0) =  0.0;
-    rosb2px4b(2,1) =  0.0;
-    rosb2px4b(2,2) = -1.0;
-    
+    }
+
     q_ne = quat(0, 0.7071, 0.7071, 0); // rotation from ned to enu
     q_rb = quat(0, 1, 0, 0); // rotation ros body to px4 body
 
     _imu_down_sampled.delta_ang.setZero();
-	  _imu_down_sampled.delta_vel.setZero();
+    _imu_down_sampled.delta_vel.setZero();
     _imu_down_sampled.delta_ang_dt = 0.0f;
     _imu_down_sampled.delta_vel_dt = 0.0f;
 
@@ -162,64 +145,64 @@ namespace eskf {
 
     _imu_buffer.allocate(_imu_buffer_length);
     for (int index = 0; index < _imu_buffer_length; index++) {
-		  imuSample imu_sample_init = {};
-		  _imu_buffer.push(imu_sample_init);
-		}
+      imuSample imu_sample_init = {};
+      _imu_buffer.push(imu_sample_init);
+    }
 
     _ext_vision_buffer.allocate(_obs_buffer_length);
     for (int index = 0; index < _obs_buffer_length; index++) {
       extVisionSample ext_vision_sample_init = {};
-		  _ext_vision_buffer.push(ext_vision_sample_init);
+      _ext_vision_buffer.push(ext_vision_sample_init);
     }
-    
+
     last_known_posNED_ = vec3(0, 0, 0);
     _delVel_sum = vec3(0, 0, 0);
-    
+
     _dt_ekf_avg = 0.001f * (scalar_t)(FILTER_UPDATE_PERIOD_MS);
-    
+
     filter_initialised_ = false;
     imu_updated_ = false;
     memset(vel_pos_innov_,0,6*sizeof(float));
     time_last_hgt_fuse_ = time_last_imu_;
   }
-  
+
   void ESKF::initialiseCovariance() {
     // define the initial angle uncertainty as variances for a rotation vector
-    
+
     for (unsigned i = 0; i < k_num_states_; i++) {
-		  for (unsigned j = 0; j < k_num_states_; j++) {
-			  P_[i][j] = 0.0f;
-		  }
-	  }
+      for (unsigned j = 0; j < k_num_states_; j++) {
+	P_[i][j] = 0.0f;
+      }
+    }
 
     // calculate average prediction time step in sec
     float dt = 0.001f * (float)FILTER_UPDATE_PERIOD_MS;
-        
-	  vec3 rot_vec_var;
-	  rot_vec_var(2) = rot_vec_var(1) = rot_vec_var(0) = sq(initial_tilt_err);
 
-	  // update the quaternion state covariances
-	  initialiseQuatCovariances(rot_vec_var);
+    vec3 rot_vec_var;
+    rot_vec_var(2) = rot_vec_var(1) = rot_vec_var(0) = sq(initial_tilt_err);
 
-	  // velocity
-	  P_[4][4] = sq(fmaxf(vel_noise, 0.01f));
-	  P_[5][5] = P_[4][4];
-	  P_[6][6] = sq(1.5f) * P_[4][4];
+    // update the quaternion state covariances
+    initialiseQuatCovariances(rot_vec_var);
 
-	  // position
-	  P_[7][7] = sq(fmaxf(pos_noise, 0.01f));
-	  P_[8][8] = P_[7][7];
-	  P_[9][9] = sq(fmaxf(baro_noise, 0.01f));
+    // velocity
+    P_[4][4] = sq(fmaxf(vel_noise, 0.01f));
+    P_[5][5] = P_[4][4];
+    P_[6][6] = sq(1.5f) * P_[4][4];
 
-	  // gyro bias
-	  P_[10][10] = sq(switch_on_gyro_bias * dt);
-	  P_[11][11] = P_[10][10];
-	  P_[12][12] = P_[10][10];
+    // position
+    P_[7][7] = sq(fmaxf(pos_noise, 0.01f));
+    P_[8][8] = P_[7][7];
+    P_[9][9] = sq(fmaxf(baro_noise, 0.01f));
+
+    // gyro bias
+    P_[10][10] = sq(switch_on_gyro_bias * dt);
+    P_[11][11] = P_[10][10];
+    P_[12][12] = P_[10][10];
   }
   
   bool ESKF::initializeFilter() {
     scalar_t pitch = 0.0;
-		scalar_t roll = 0.0;
+    scalar_t roll = 0.0;
     scalar_t yaw = 0.0;
     imuSample imu_init = _imu_buffer.get_newest();
     _delVel_sum += imu_init.delta_vel;
@@ -245,7 +228,7 @@ namespace eskf {
     _imu_sample_new.delta_ang_dt = imu.delta_ang_dt;
     _imu_sample_new.delta_vel_dt = imu.delta_vel_dt;
     _imu_sample_new.time_us	= imu.time_us;
-    
+
     // accumulate the time deltas
     _imu_down_sampled.delta_ang_dt += imu.delta_ang_dt;
     _imu_down_sampled.delta_vel_dt += imu.delta_vel_dt;
@@ -257,19 +240,19 @@ namespace eskf {
     delta_q = delta_q * res;
     _q_down_sampled = _q_down_sampled * delta_q;
     _q_down_sampled.normalize();
-    
+
     // rotate the accumulated delta velocity data forward each time so it is always in the updated rotation frame
     mat3 delta_R = quat2dcm(delta_q.inverse());
     _imu_down_sampled.delta_vel = delta_R * _imu_down_sampled.delta_vel;
-    
+
     // accumulate the most recent delta velocity data at the updated rotation frame
-	  // assume effective sample time is halfway between the previous and current rotation frame
-	  _imu_down_sampled.delta_vel += (_imu_sample_new.delta_vel + delta_R * _imu_sample_new.delta_vel) * 0.5f;
-        
+    // assume effective sample time is halfway between the previous and current rotation frame
+    _imu_down_sampled.delta_vel += (_imu_sample_new.delta_vel + delta_R * _imu_sample_new.delta_vel) * 0.5f;
+
     // if the target time delta between filter prediction steps has been exceeded
     // write the accumulated IMU data to the ring buffer
     float target_dt = (float)(FILTER_UPDATE_PERIOD_MS) / 1000;
-    
+
     if (_imu_down_sampled.delta_ang_dt >= target_dt - _imu_collection_time_adj) {
 
       // accumulate the amount of time to advance the IMU collection time so that we meet the
@@ -281,35 +264,35 @@ namespace eskf {
       imu.delta_vel     = _imu_down_sampled.delta_vel;
       imu.delta_ang_dt  = _imu_down_sampled.delta_ang_dt;
       imu.delta_vel_dt  = _imu_down_sampled.delta_vel_dt;
-      
+
       _imu_down_sampled.delta_ang.setZero();
       _imu_down_sampled.delta_vel.setZero();
       _imu_down_sampled.delta_ang_dt = 0.0f;
       _imu_down_sampled.delta_vel_dt = 0.0f;
       _q_down_sampled.w() = 1.0f;
       _q_down_sampled.x() = _q_down_sampled.y() = _q_down_sampled.z() = 0.0f;
-      
+
       return true;
     }
-    
+
     min_obs_interval_us = (_imu_sample_new.time_us - _imu_sample_delayed.time_us) / (_obs_buffer_length - 1);
-    
+
     return false;
   }
   
   void ESKF::predict(const vec3 &w, const vec3 &a, uint64_t time_us, scalar_t dt) {
     
     // convert ROS body to PX4 body frame IMU data
-    vec3 px4body_w = rosb2px4b * w;
-    vec3 px4body_a = rosb2px4b * a;
+    vec3 px4body_w = q_rb.toRotationMatrix() * w;
+    vec3 px4body_a = q_rb.toRotationMatrix() * a;
     
     vec3 delta_ang = px4body_w * dt; // current delta angle  (rad)
     vec3 delta_vel = px4body_a * dt; //current delta velocity (m/s)
     
     // copy data
-	  imuSample imu_sample_new = {};
-	  imu_sample_new.delta_ang = delta_ang;
-	  imu_sample_new.delta_vel = delta_vel;
+    imuSample imu_sample_new = {};
+    imu_sample_new.delta_ang = delta_ang;
+    imu_sample_new.delta_vel = delta_vel;
     imu_sample_new.delta_ang_dt = dt;
     imu_sample_new.delta_vel_dt = dt;
     imu_sample_new.time_us = time_us;
@@ -368,8 +351,6 @@ namespace eskf {
         
     constrainStates();
         
-    curr_time_sec += (double)_imu_sample_delayed.delta_vel_dt;
-    
     // calculate an average filter update time
     scalar_t input = 0.5f * (_imu_sample_delayed.delta_vel_dt + _imu_sample_delayed.delta_ang_dt);
 
@@ -925,8 +906,8 @@ namespace eskf {
 
       // calculate the yaw angle for a 321 sequence
       // Expressions obtained from yaw_input_321.c produced by https://github.com/PX4/ecl/blob/master/matlab/scripts/Inertial%20Nav%20EKF/quat2yaw321.m
-      Tbn_1_0 = 2.0f*(ev_sample_delayed_.quatNED.w() * ev_sample_delayed_.quatNED.z() + ev_sample_delayed_.quatNED.x() * ev_sample_delayed_.quatNED.y());
-      Tbn_0_0 = sq(ev_sample_delayed_.quatNED.w()) + sq(ev_sample_delayed_.quatNED.x()) - sq(ev_sample_delayed_.quatNED.y()) - sq(ev_sample_delayed_.quatNED.z());
+      scalar_t Tbn_1_0 = 2.0f*(ev_sample_delayed_.quatNED.w() * ev_sample_delayed_.quatNED.z() + ev_sample_delayed_.quatNED.x() * ev_sample_delayed_.quatNED.y());
+      scalar_t Tbn_0_0 = sq(ev_sample_delayed_.quatNED.w()) + sq(ev_sample_delayed_.quatNED.x()) - sq(ev_sample_delayed_.quatNED.y()) - sq(ev_sample_delayed_.quatNED.z());
       measured_hdg = atan2f(Tbn_1_0,Tbn_0_0);
     }
     else {
@@ -965,8 +946,8 @@ namespace eskf {
       predicted_hdg = yaw; // we will need the predicted heading to calculate the innovation
       // calculate the yaw angle for a 312 sequence
       // Values from yaw_input_312.c file produced by https://github.com/PX4/ecl/blob/master/matlab/scripts/Inertial%20Nav%20EKF/quat2yaw312.m
-      Tbn_0_1_neg = 2.0f * (ev_sample_delayed_.quatNED.w() * ev_sample_delayed_.quatNED.z() - ev_sample_delayed_.quatNED.x() * ev_sample_delayed_.quatNED.y());
-      Tbn_1_1 = sq(ev_sample_delayed_.quatNED.w()) - sq(ev_sample_delayed_.quatNED.x()) + sq(ev_sample_delayed_.quatNED.y()) - sq(ev_sample_delayed_.quatNED.z());
+      scalar_t Tbn_0_1_neg = 2.0f * (ev_sample_delayed_.quatNED.w() * ev_sample_delayed_.quatNED.z() - ev_sample_delayed_.quatNED.x() * ev_sample_delayed_.quatNED.y());
+      scalar_t Tbn_1_1 = sq(ev_sample_delayed_.quatNED.w()) - sq(ev_sample_delayed_.quatNED.x()) + sq(ev_sample_delayed_.quatNED.y()) - sq(ev_sample_delayed_.quatNED.z());
       measured_hdg = atan2f(Tbn_0_1_neg, Tbn_1_1);
     }
     
@@ -1022,7 +1003,6 @@ namespace eskf {
 	  
     // set the vision yaw unhealthy if the test fails
     if (yaw_test_ratio > 1.0f) {
-      printf("yaw test ratio is unhealthy\n");
       if(in_air_)
         return;
       else {
@@ -1207,15 +1187,17 @@ namespace eskf {
     rpy[0] = phi;    //  x, [-pi,pi]
     rpy[1] = theta;  //  y, [-pi/2,pi/2]
     rpy[2] = psi;    //  z, [-pi,pi]
-    return rpy;
+    return q_ne.toRotationMatrix() * rpy;
   }
 
   const quat& ESKF::getQuat() const { 
-    return state_.quat_nominal; 
+    quat q_eb = (q_rb.conjugate() * state_.quat_nominal.conjugate() * q_ne.conjugate()).conjugate();
+    q_eb.normalize();
+    return q_eb; 
   }
 
   vec3 ESKF::getXYZ() {
-    return state_.pos;
+    return q_ne.toRotationMatrix() * state_.pos;
   }
 
   // initialise the quaternion covariances using rotation vector variances

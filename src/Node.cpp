@@ -1,6 +1,5 @@
 #include <eskf/Node.hpp>
 #include <geometry_msgs/Vector3Stamped.h>
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
 
 namespace eskf
 {
@@ -77,12 +76,12 @@ void Node::inputCallback(const sensor_msgs::ImuConstPtr &imuMsg) {
   prevStampImu_ = imuMsg->header.stamp;
 }
   
-void Node::visionCallback(const geometry_msgs::PoseStampedConstPtr& poseMsg) {
+void Node::visionCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr& poseMsg) {
   if(prevStampVisionPose_.sec != 0) {
     const double delta = (poseMsg->header.stamp - prevStampVisionPose_).toSec();
     // get measurements
-    quat z_q = quat(poseMsg->pose.orientation.w, poseMsg->pose.orientation.x, poseMsg->pose.orientation.y, poseMsg->pose.orientation.z);
-    vec3 z_p = vec3(poseMsg->pose.position.x, poseMsg->pose.position.y, poseMsg->pose.position.z);
+    quat z_q = quat(poseMsg->pose.pose.orientation.w, poseMsg->pose.pose.orientation.x, poseMsg->pose.pose.orientation.y, poseMsg->pose.pose.orientation.z);
+    vec3 z_p = vec3(poseMsg->pose.pose.position.x, poseMsg->pose.pose.position.y, poseMsg->pose.pose.position.z);
     eskf_.update(z_q, z_p, static_cast<uint64_t>(poseMsg->header.stamp.toSec()*1e6f), delta);
   }
   prevStampVisionPose_ = poseMsg->header.stamp;

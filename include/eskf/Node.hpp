@@ -3,7 +3,7 @@
 
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
-#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <message_filters/subscriber.h>
 #include <eskf/ESKF.hpp>
 
@@ -33,7 +33,7 @@ namespace eskf {
     
     //  callbacks
     void inputCallback(const sensor_msgs::ImuConstPtr&);
-    void visionCallback(const geometry_msgs::PoseStampedConstPtr&);
+    void visionCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr&);
   };
 } //  namespace eskf
 

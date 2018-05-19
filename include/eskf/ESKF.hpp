@@ -240,6 +240,7 @@ namespace eskf {
 
     static constexpr scalar_t kOneG = 9.80665;  /// Earth gravity (m/s^2)
     static constexpr scalar_t acc_bias_lim = 0.4; ///< maximum accel bias magnitude (m/sec**2)
+    static constexpr scalar_t hgt_reset_lim = 0.0f; ///< 
 
     // process noise
     scalar_t gyro_bias_p_noise{1.0e-3};		///< process noise for IMU rate gyro bias prediction (rad/sec**2)
@@ -263,8 +264,6 @@ namespace eskf {
     
     scalar_t heading_innov_gate{2.6f};		///< heading fusion innovation consistency gate size (STD)
     
-    mat3 rosb2px4b; ///< rotation from ROS body to PX4 body frame. need conversion for IMU
-    
     quat q_ne; ///< rotation from NED to ENU
     quat q_rb; ///< rotation from ROS body to PX4 body
     
@@ -276,12 +275,6 @@ namespace eskf {
     bool fuse_ = true;
     bool in_air_ = false;
     vec3 last_known_posNED_;
-    double curr_time_sec = 0.0; 
-    scalar_t hgt_reset_lim{0.0f};
-    scalar_t Tbn_1_0 = 0;
-    scalar_t Tbn_0_0 = 0;
-    scalar_t Tbn_0_1_neg = 0; 
-    scalar_t Tbn_1_1 = 0;
   };
 }
 
