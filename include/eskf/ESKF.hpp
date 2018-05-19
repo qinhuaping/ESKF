@@ -155,7 +155,7 @@ namespace eskf {
     void predict(const vec3& w, const vec3& a, uint64_t time_us, scalar_t dt);
     void update(const quat& q, const vec3& p, uint64_t time_us, scalar_t dt);
     
-    const quat& getQuat() const;
+    quat getQuat();
     vec3 getRPY(const mat3& R);
     vec3 getXYZ();
 

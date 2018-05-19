@@ -1190,7 +1190,7 @@ namespace eskf {
     return q_ne.toRotationMatrix() * rpy;
   }
 
-  const quat& ESKF::getQuat() const { 
+  quat ESKF::getQuat() { 
     quat q_eb = (q_rb.conjugate() * state_.quat_nominal.conjugate() * q_ne.conjugate()).conjugate();
     q_eb.normalize();
     return q_eb; 
