@@ -8,9 +8,13 @@
   <!-- VISION topic to use -->
   <arg name="vision_topic" default="/svo/pose"/>
   
+  <!-- GPS topic to use -->
+  <arg name="gps_pose_topic" default="/mavros/global_position/local"/>
+  
   <node pkg="eskf" name="$(arg eskf_node)" type="eskf" output="screen">
     <remap from="~imu" to="$(arg imu_topic)"/>
     <remap from="~vision_pose" to="$(arg vision_topic)"/>
+    <remap from="~gps_pose" to="$(arg gps_pose_topic)"/>
   </node>
 
 </launch>

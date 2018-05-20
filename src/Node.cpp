@@ -10,7 +10,8 @@ Node::Node(const ros::NodeHandle &nh, const ros::NodeHandle &pnh) : nh_(pnh), in
   subImu_ = nh_.subscribe<sensor_msgs::Imu>("imu", 1000, &Node::inputCallback, this, ros::TransportHints().tcpNoDelay(true));
   ROS_INFO("Subscribing to ~pose.");
   subVisionPose_ = nh_.subscribe("vision_pose", 1, &Node::visionCallback, this);
-
+  ROS_INFO("Subscribing to ~gps_pose.");
+  subGpsPose_ = nh_.subscribe("gps_pose", 1, &Node::gpsCallback, this);
   pubRPY_ = nh_.advertise<geometry_msgs::Vector3Stamped>("rpy", 1);
   pubXYZ_ = nh_.advertise<geometry_msgs::Vector3Stamped>("xyz", 1);
   pubPose_ = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("pose", 1);
@@ -82,9 +83,20 @@ void Node::visionCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr
     // get measurements
     quat z_q = quat(poseMsg->pose.pose.orientation.w, poseMsg->pose.pose.orientation.x, poseMsg->pose.pose.orientation.y, poseMsg->pose.pose.orientation.z);
     vec3 z_p = vec3(poseMsg->pose.pose.position.x, poseMsg->pose.pose.position.y, poseMsg->pose.pose.position.z);
-    eskf_.update(z_q, z_p, static_cast<uint64_t>(poseMsg->header.stamp.toSec()*1e6f), delta);
+    eskf_.updateVision(z_q, z_p, static_cast<uint64_t>(poseMsg->header.stamp.toSec()*1e6f), delta);
   }
   prevStampVisionPose_ = poseMsg->header.stamp;
+}
+
+void Node::gpsCallback(const nav_msgs::OdometryConstPtr &odomMsg) {
+  if (prevStampGpsPose_.sec != 0) {
+    const double delta = (odomMsg->header.stamp - prevStampGpsPose_).toSec();
+    // get gps measurements
+    vec3 z_v = vec3(odomMsg->twist.twist.linear.x, odomMsg->twist.twist.linear.y, odomMsg->twist.twist.linear.z);
+    vec3 z_p = vec3(odomMsg->pose.pose.position.x, odomMsg->pose.pose.position.y, odomMsg->pose.pose.position.z);
+    eskf_.updateGps(z_v, z_p, static_cast<uint64_t>(odomMsg->header.stamp.toSec() * 1e6f), delta);
+  }
+  prevStampGpsPose_ = odomMsg->header.stamp;
 }
 
 }

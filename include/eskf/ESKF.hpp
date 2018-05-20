@@ -5,12 +5,14 @@
 #include <Eigen/Dense>
 #include <ros/time.h>
 
-#define EV_MAX_INTERVAL	2e5	///< Maximum allowable time interval between external vision system measurements (uSec)
+#define EV_MAX_INTERVAL		2e5	///< Maximum allowable time interval between external vision system measurements (uSec)
+#define GPS_MAX_INTERVAL	1e6	///< Maximum allowable time interval between external gps system measurements (uSec)
 
 namespace eskf {
   
   typedef float scalar_t;
   typedef Eigen::Matrix<scalar_t, 3, 1> vec3; /// Vector in R3
+  typedef Eigen::Matrix<scalar_t, 3, 1> vec2; /// Vector in R2
   typedef Eigen::Matrix<scalar_t, 3, 3> mat3; /// Matrix in R3
   typedef Eigen::Quaternion<scalar_t> quat;   /// Member of S4
   
@@ -153,7 +155,8 @@ namespace eskf {
     ESKF();
 
     void predict(const vec3& w, const vec3& a, uint64_t time_us, scalar_t dt);
-    void update(const quat& q, const vec3& p, uint64_t time_us, scalar_t dt);
+    void updateVision(const quat& q, const vec3& p, uint64_t time_us, scalar_t dt);
+    void updateGps(const vec3& v, const vec3& p, uint64_t time_us, scalar_t dt);
     
     quat getQuat();
     vec3 getRPY(const mat3& R);
@@ -171,7 +174,7 @@ namespace eskf {
     void fixCovarianceErrors();
     void initialiseCovariance();
     void predictCovariance();
-    void fusePosHeight();
+    void fuseVelPosHeight();
     void resetHeight();
     void fuseHeading();
     void controlHeightSensorTimeouts();
@@ -210,6 +213,15 @@ namespace eskf {
       uint64_t time_us;		///< timestamp of the measurement (uSec)
     };
     
+    struct gpsSample {
+      vec2    	pos;	///< NE earth frame gps horizontal position measurement (m)
+      vec3 	vel;	///< NED earth frame gps velocity measurement (m/sec)
+      scalar_t  hacc;	///< 1-std horizontal position error (m)
+      scalar_t  vacc;	///< 1-std vertical position error (m)
+      scalar_t  sacc;	///< 1-std speed error (m/sec)
+      uint64_t  time_us;	///< timestamp of the measurement (uSec)
+    };
+    
     bool collect_imu(imuSample& imu);
     
     const unsigned FILTER_UPDATE_PERIOD_MS = 12;	// ekf prediction period in milliseconds - this should ideally be an integer multiple of the IMU time delta
@@ -226,10 +238,15 @@ namespace eskf {
     RingBuffer<extVisionSample> _ext_vision_buffer;
     scalar_t ev_delay_ms{100.0f};		///< off-board vision measurement delay relative to the IMU (mSec)
     uint64_t time_last_ext_vision;
+    uint64_t time_last_gps;
     uint64_t time_last_imu_ {0};
     uint64_t time_last_hgt_fuse_ {0};
     unsigned min_obs_interval_us{0}; // minimum time interval between observations that will guarantee data is not lost (usec)
     scalar_t _dt_ekf_avg{0.001f * FILTER_UPDATE_PERIOD_MS}; ///< average update rate of the ekf
+    
+    gpsSample _gps_sample_delayed{};	// captures the gps sample on the delayed time horizon
+    gpsSample gps_sample_delayed_{}; 
+    RingBuffer<gpsSample> _gps_buffer;
     
     bool imu_updated_;
     bool filter_initialised_;
@@ -263,6 +280,18 @@ namespace eskf {
     scalar_t vel_pos_innov_var_[6] {};	///< ROS velocity and position innovation variances: (m**2)
     
     scalar_t heading_innov_gate{2.6f};		///< heading fusion innovation consistency gate size (STD)
+    scalar_t gps_vel_noise{5.0e-1f};		///< minimum allowed observation noise for gps velocity fusion (m/sec)
+    scalar_t gps_pos_noise{0.5f};		///< minimum allowed observation noise for gps position fusion (m)
+    scalar_t pos_noaid_noise{10.0f};		///< observation noise for non-aiding position fusion (m)
+    
+    scalar_t posNE_innov_gate{5.0f};		///< GPS horizontal position innovation consistency gate size (STD)
+    scalar_t vel_innov_gate{5.0f};		///< GPS velocity innovation consistency gate size (STD)
+    
+    scalar_t _posObsNoiseNE{0.0f};		///< 1-STD observtion noise used for the fusion of NE position data (m)
+    scalar_t _posInnovGateNE{1.0f};		///< Number of standard deviations used for the NE position fusion innovation consistency check
+
+    vec2 _velObsVarNE;		///< 1-STD observation noise variance used for the fusion of NE velocity data (m/sec)**2
+    scalar_t _hvelInnovGate{1.0f};		///< Number of standard deviations used for the horizontal velocity fusion innovation consistency check
     
     quat q_ne; ///< rotation from NED to ENU
     quat q_rb; ///< rotation from ROS body to PX4 body
@@ -272,6 +301,10 @@ namespace eskf {
     bool ev_pos_ = false;
     bool ev_yaw_ = false;
     bool ev_hgt_ = false;
+    bool gps_pos_ = false;
+    bool gps_vel_ = false;
+    bool fuse_hor_vel_ = false;
+    bool fuse_vert_vel_ = false;
     bool fuse_ = true;
     bool in_air_ = false;
     vec3 last_known_posNED_;

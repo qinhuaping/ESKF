@@ -12,7 +12,11 @@ namespace eskf {
   template <typename T> inline T sq(T var) {
     return var * var;
   }
-
+  
+  template <typename T> inline T max(T val1, T val2) {
+    return (val1 > val2) ? val1 : val2;
+  }
+  
   template<typename Scalar>
   static inline constexpr const Scalar &constrain(const Scalar &val, const Scalar &min_val, const Scalar &max_val) {
     return (val < min_val) ? min_val : ((val > max_val) ? max_val : val);
@@ -359,7 +363,7 @@ namespace eskf {
     _dt_ekf_avg = 0.99f * _dt_ekf_avg + 0.01f * input;
     
     predictCovariance();
-    fusePosHeight();
+    fuseVelPosHeight();
     controlHeightSensorTimeouts();
     fuseHeading();
   }
@@ -680,7 +684,7 @@ namespace eskf {
     P_[6][6] = 10.0f;
   }
     
-  void ESKF::fusePosHeight() {
+  void ESKF::fuseVelPosHeight() {
     if(!fuse_) return;
     
     bool fuse_map[6] = {}; // map of booleans true when [VN,VE,VD,PN,PE,PD] observations are available
@@ -689,10 +693,56 @@ namespace eskf {
     scalar_t gate_size[6] = {}; // innovation consistency check gate sizes for [VN,VE,VD,PN,PE,PD] observations
     scalar_t Kfusion[k_num_states_] = {}; // Kalman gain vector for any single observation - sequential fusion is used
     
+    // calculate innovations, innovations gate sizes and observation variances
+    if (fuse_hor_vel_) {
+      // enable fusion for NE velocity axes
+      fuse_map[0] = fuse_map[1] = true;
+      _velObsVarNE(1) = _velObsVarNE(0) = sq(fmaxf(gps_sample_delayed_.sacc, gps_vel_noise));
+      
+      // Set observation noise variance and innovation consistency check gate size for the NE position observations
+      R[0] = _velObsVarNE(0);
+      R[1] = _velObsVarNE(1);
+      
+      _hvelInnovGate = fmaxf(vel_innov_gate, 1.0f);
+      gate_size[1] = gate_size[0] = _hvelInnovGate;
+    }
+
+    if (fuse_vert_vel_) {
+      fuse_map[2] = true;
+      // observation variance - use receiver reported accuracy with parameter setting the minimum value
+      R[2] = fmaxf(gps_vel_noise, 0.01f);
+      // use scaled horizontal speed accuracy assuming typical ratio of VDOP/HDOP
+      R[2] = 1.5f * fmaxf(R[2], gps_sample_delayed_.sacc);
+      R[2] = R[2] * R[2];
+      // innovation gate size
+      gate_size[2] = fmaxf(vel_innov_gate, 1.0f);
+    }
+    
     if (fuse_pos_) {
       fuse_map[3] = fuse_map[4] = true;
+      
+      if(gps_pos_) {
+	gps_pos_ = false;
+	gps_vel_ = false;
+	fuse_ = false;
+	// calculate observation process noise
+	scalar_t lower_limit = fmaxf(gps_pos_noise, 0.01f);
+	scalar_t upper_limit = fmaxf(pos_noaid_noise, lower_limit);
+	_posObsNoiseNE = constrain(gps_sample_delayed_.hacc, lower_limit, upper_limit);
 
-      if (ev_pos_) {
+	// calculate innovations
+	vel_pos_innov_[0] = state_.vel(0) - gps_sample_delayed_.vel(0);
+	vel_pos_innov_[1] = state_.vel(1) - gps_sample_delayed_.vel(1);
+	vel_pos_innov_[2] = state_.vel(2) - gps_sample_delayed_.vel(2);
+	vel_pos_innov_[3] = state_.pos(0) - gps_sample_delayed_.pos(0);
+	vel_pos_innov_[4] = state_.pos(1) - gps_sample_delayed_.pos(1);
+
+	// set innovation gate size
+	gate_size[3] = fmaxf(posNE_innov_gate, 1.0f);
+
+	R[3] = sq(_posObsNoiseNE);
+
+      } else if (ev_pos_) {
         ev_pos_ = false;
         fuse_ = false;
         // calculate innovations
@@ -705,6 +755,7 @@ namespace eskf {
 
         // innovation gate size
         gate_size[3] = fmaxf(5.0f, 1.0f);
+
       } else {
         // No observations - use a static position to constrain drift
         if (in_air_) {
@@ -815,10 +866,11 @@ namespace eskf {
     }
   }
   
-  void ESKF::update(const quat& q, const vec3& p, uint64_t time_usec, scalar_t dt) {
+  void ESKF::updateVision(const quat& q, const vec3& p, uint64_t time_usec, scalar_t dt) {
     // q here is rotation from enu to ros body
     quat q_nb = (q_rb.conjugate() * q.conjugate() * q_ne.conjugate()).conjugate();
     q_nb.normalize();
+    // convert position from enu to ned
     vec3 pos_nb = q_ne.conjugate().toRotationMatrix() * p;
     
     // limit data rate to prevent data being lost
@@ -832,7 +884,7 @@ namespace eskf {
       ev_sample_new.posNED = pos_nb;
       ev_sample_new.time_us = time_usec - ev_delay_ms * 1000;
       time_last_ext_vision = time_usec;
-       // push to buffer
+      // push to buffer
       _ext_vision_buffer.push(ev_sample_new);
     }
     if(_ext_vision_buffer.pop_first_older_than(_imu_sample_delayed.time_us, &ev_sample_delayed_)) {
@@ -845,6 +897,44 @@ namespace eskf {
       ev_yaw_ = false;
       fuse_ = false;
       ev_hgt_ = false;
+    }
+    if(state_.pos(2) > 1.0) {
+      in_air_ = true;
+    } else {
+      in_air_ = false;
+    }
+  }
+  
+  void ESKF::updateGps(const vec3& v, const vec3& p, uint64_t time_us, scalar_t dt) {
+    vec3 vel_nb = q_ne.conjugate().toRotationMatrix() * v;
+    vec3 pos_nb = q_ne.conjugate().toRotationMatrix() * p;
+    
+    // check for arrival of new sensor data at the fusion time horizon
+    if (time_us - time_last_gps > min_obs_interval_us) {
+      gpsSample gps_sample_new;
+      gps_sample_new.time_us = time_us - 110 * 1000;
+
+      gps_sample_new.time_us -= FILTER_UPDATE_PERIOD_MS * 1000 / 2;
+      time_last_gps = time_us;
+
+      gps_sample_new.time_us = max(gps_sample_new.time_us, _imu_sample_delayed.time_us);
+      gps_sample_new.vel = vel_nb;
+      gps_sample_new.hacc = 5.0;
+      gps_sample_new.vacc = 8.0;
+      gps_sample_new.sacc = 1.0;
+      
+      gps_sample_new.pos(0) = pos_nb(0);
+      gps_sample_new.pos(1) = pos_nb(1);
+      _gps_buffer.push(gps_sample_new);
+    }
+    if(_gps_buffer.pop_first_older_than(_imu_sample_delayed.time_us, &_gps_sample_delayed)) {
+      gps_pos_ = true;
+      gps_vel_ = true;
+      fuse_ = true;      
+    } else {
+      gps_pos_ = false;
+      gps_vel_ = false;
+      fuse_ = false; 
     }
     if(state_.pos(2) > 1.0) {
       in_air_ = true;
