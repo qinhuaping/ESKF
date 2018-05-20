@@ -158,7 +158,13 @@ namespace eskf {
       extVisionSample ext_vision_sample_init = {};
       _ext_vision_buffer.push(ext_vision_sample_init);
     }
-
+    
+    _gps_buffer.allocate(_obs_buffer_length);
+    for (int index = 0; index < _obs_buffer_length; index++) {
+      gpsSample gps_sample_init = {};
+      _gps_buffer.push(gps_sample_init);
+    }
+    
     last_known_posNED_ = vec3(0, 0, 0);
     _delVel_sum = vec3(0, 0, 0);
 
@@ -888,12 +894,12 @@ namespace eskf {
       _ext_vision_buffer.push(ev_sample_new);
     }
     if(_ext_vision_buffer.pop_first_older_than(_imu_sample_delayed.time_us, &ev_sample_delayed_)) {
-      ev_pos_ = true;
+      //ev_pos_ = true;
       ev_yaw_ = true;
       fuse_ = true;
       ev_hgt_ = true;
     } else {
-      ev_pos_ = false;
+      //ev_pos_ = false;
       ev_yaw_ = false;
       fuse_ = false;
       ev_hgt_ = false;

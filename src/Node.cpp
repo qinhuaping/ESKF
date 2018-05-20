@@ -8,10 +8,11 @@ Node::Node(const ros::NodeHandle &nh, const ros::NodeHandle &pnh) : nh_(pnh), in
   //  subscribe
   ROS_INFO("Subscribing to ~imu.");
   subImu_ = nh_.subscribe<sensor_msgs::Imu>("imu", 1000, &Node::inputCallback, this, ros::TransportHints().tcpNoDelay(true));
-  ROS_INFO("Subscribing to ~pose.");
+  ROS_INFO("Subscribing to ~vision_pose.");
   subVisionPose_ = nh_.subscribe("vision_pose", 1, &Node::visionCallback, this);
   ROS_INFO("Subscribing to ~gps_pose.");
   subGpsPose_ = nh_.subscribe("gps_pose", 1, &Node::gpsCallback, this);
+  
   pubRPY_ = nh_.advertise<geometry_msgs::Vector3Stamped>("rpy", 1);
   pubXYZ_ = nh_.advertise<geometry_msgs::Vector3Stamped>("xyz", 1);
   pubPose_ = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("pose", 1);
