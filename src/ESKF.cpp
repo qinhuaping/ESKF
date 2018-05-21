@@ -894,12 +894,12 @@ namespace eskf {
       _ext_vision_buffer.push(ev_sample_new);
     }
     if(_ext_vision_buffer.pop_first_older_than(_imu_sample_delayed.time_us, &ev_sample_delayed_)) {
-      //ev_pos_ = true;
+      ev_pos_ = true;
       ev_yaw_ = true;
       fuse_ = true;
       ev_hgt_ = true;
     } else {
-      //ev_pos_ = false;
+      ev_pos_ = false;
       ev_yaw_ = false;
       fuse_ = false;
       ev_hgt_ = false;
