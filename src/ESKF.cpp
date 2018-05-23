@@ -876,6 +876,22 @@ namespace eskf {
     // q here is rotation from enu to ros body
     quat q_nb = (q_rb.conjugate() * q.conjugate() * q_ne.conjugate()).conjugate();
     q_nb.normalize();
+
+    if(reset_quat_){
+      // reset the yaw angle to the value from the observaton quaternion
+      // get the roll, pitch, yaw estimates from the quaternion states
+      vec3 euler_init = dcm2vec(quat2dcm(state_.quat_nominal));
+
+      // get initial yaw from the observation quaternion
+      vec3 euler_obs = dcm2vec(quat2dcm(q_nb));
+      euler_init(2) = euler_obs(2);
+
+      // calculate initial quaternion states for the ekf
+      state_.quat_nominal = from_axis_angle(euler_init);
+
+      reset_quat_ = false;
+    }
+
     // convert position from enu to ned
     vec3 pos_nb = q_ne.conjugate().toRotationMatrix() * p;
     

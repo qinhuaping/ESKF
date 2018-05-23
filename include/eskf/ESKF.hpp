@@ -307,6 +307,7 @@ namespace eskf {
     bool fuse_vert_vel_ = false;
     bool fuse_ = true;
     bool in_air_ = false;
+    bool reset_quat_ = true;
     vec3 last_known_posNED_;
   };
 }
